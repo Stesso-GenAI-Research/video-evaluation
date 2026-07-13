@@ -1,8 +1,8 @@
 # Data completion status
 
-This repository has the code needed to run the first three months of Project 1. It now also has access to `indexed-videos-250.jsonl`, a private sample of 250 indexed videos with 1,703 nested clip records. The sample is enough to run and inspect the Month 1 and Month 2 structured-language pipeline. It is not enough to measure retrieval accuracy because it does not include project steps, pairwise comparison labels, or dense embedding vectors.
+This repository now has a working structured search path for `indexed-videos-250.jsonl`, a private sample of 250 indexed videos with 1,703 nested clip records. Each nested clip is an instructional step with a name, metadata, and timestamps, so the file is enough to build an index and return top-k action-semantic matches.
 
-The project PDF describes the real data needed for this work: indexed video clips, `geminiMetaData`, transcripts, dense embeddings, and pairwise comparison rows. Those records are not inside this package, so I have not created fake clips, fake labels, fake dense embeddings, or fake final results.
+Dense embeddings and pairwise judgments are still useful for later comparative evaluation, but they are not required for the immediate structured-search deliverable.
 
 What is complete in this repository:
 
@@ -12,20 +12,23 @@ What is complete in this repository:
 - The data contracts and SQL export guide are included.
 - The repository can be installed and tested locally.
 - The new `prepare-indexed-videos` command flattens the nested sample into stable clip records and writes a data-availability profile.
-- The new `run-indexed-video-analysis` command runs Month 1 and Month 2 on the real sample, verifies the generated artifacts, and records why Month 3 was not run.
-- The real sample run completed locally. It produced 8,823 action triples, 1,006 distinct action lemmas, 8,823 SRL-style role rows, and a 660-action, 80-cluster first-pass taxonomy. These are extraction outputs, not retrieval-effectiveness results.
-- The pipeline now measures extraction quality automatically. Actions were found in 1,100 of 1,703 clips (64.6%), VerbNet covered 71.1% of action lemmas, and FrameNet covered 69.4%.
+- The new `run-indexed-video-analysis` command builds and verifies the structured index from the real sample.
+- The real sample run completed locally. It produced 9,246 action triples, 1,023 distinct action lemmas, and a 670-action, 80-cluster first-pass taxonomy.
+- The pipeline now measures extraction quality automatically. Actions were found in 1,335 of 1,703 clips (78.4%), VerbNet covered 70.9% of action lemmas, and FrameNet covered 69.2%.
 - A deterministic 60-row manual-review worksheet is generated at `quality/manual_review_sample.csv`.
 - Record-level tool metadata is preserved separately from directly parsed tools and can be used as a fallback in structured scoring.
+- The `search-indexed-clips` command parses an action query, scores all 1,703 clips, and returns the top matches.
+- The Bash script exposes this as `./scripts/run_local_pipeline.sh search "query text"` and saves the result as JSON.
+- The `compare-indexed-clips` command compares supplied original matches, or a TF-IDF baseline, with the new action-semantic top three.
+- The comparison reports overlap plus text, action, object, tool, VerbNet, FrameNet, taxonomy, and total structured scores for both sets.
 
-What still has to happen before the research dataset can be called complete:
+What should happen next:
 
-- Export the full `clips.jsonl` from the real `IndexedVideoClip` data, or adapt the nested export using the new preparation command when appropriate.
-- Export `steps.jsonl` from the real project-step data.
-- Export `pairwise.jsonl` from the real `ClipPairComparison` data.
-- Confirm that the dense embeddings are present in the clip and step export files.
-- Run `validate-inputs`, `run-all`, and `verify-repository` on those files.
-- Review a stratified sample of the extraction output manually before making research claims from it. The first sample run shows high object coverage (63.1%) but low dependency-linked tool coverage (3.5%), so tool attachment is an important error-analysis target.
+- Run and inspect realistic top-three searches.
+- Review a stratified sample of the extraction output manually before making accuracy claims.
 - Label the generated review worksheet, summarize the error types, and report human-reviewed action/object/tool precision.
+- Build an aligned-clip benchmark from the nested records.
+- Request a larger export in the same IndexedVideo format.
+- Add dense or lexical baselines and compare them with structured and hybrid scoring.
 
-The code is intentionally strict about missing data. The sample runner stops before Month 3 rather than inventing steps, labels, or embeddings. This avoids the main risk in this project: producing tables that look finished but are based on incomplete or synthetic information.
+The current file is sufficient for retrieval and qualitative top-k inspection. Human labels would strengthen a later effectiveness study, but their absence no longer blocks the working search system.

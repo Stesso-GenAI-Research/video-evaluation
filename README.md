@@ -1,210 +1,246 @@
-# Action Semantics for Instructional Video Search
+# Action Semantics for Indexed Video Search
 
-## The point of this project
+## What this project is supposed to do
 
-This project asks one main question:
+The immediate goal is to build a working search tool for indexed instructional video clips.
 
-> Can a video search system find a better instructional clip by understanding the exact action being performed?
-
-Imagine that a project step says:
-
-> Tighten the loose pipe connection with a wrench.
-
-A normal text-search or embedding system may return any clip about plumbing. It could return a clip about painting a pipe, replacing a pipe, or inspecting a leak. Those clips are related to the same topic, but they do not show the requested action.
-
-I want the search system to notice three important details:
-
-- The action is `tighten`.
-- The object is a `pipe connection`.
-- The tool is a `wrench`.
-
-The research question is whether matching these details improves search results compared with matching general text meaning alone.
-
-## The experiment I eventually want to run
-
-For each real project step, I will give the system two candidate video clips. A person has already decided which clip is the better match.
-
-I will test three search methods:
-
-1. Dense matching compares the general meaning of the step and clip text using embedding vectors.
-2. Structured matching compares actions, objects, tools, and related action groups.
-3. Hybrid matching combines dense and structured matching.
-
-Each method chooses one of the two clips. I then check whether it chose the same clip as the human reviewer.
-
-The main result will be pairwise accuracy: the percentage of comparisons where the system agrees with the human.
-
-This is the actual research experiment. Everything completed so far prepares the data and features needed for it.
-
-## What I have built so far
-
-The available private sample is `indexed-videos-250.jsonl`. It contains 250 videos and 1,703 shorter clips.
-
-I built an automatic pipeline that:
-
-1. Converts the nested video file into one record per clip.
-2. Reads clip titles, descriptions, and goals.
-3. Finds possible action words such as `cut`, `remove`, `install`, and `paint`.
-4. Tries to find the object receiving the action.
-5. Tries to find a tool directly connected to the action.
-6. Keeps tools listed in metadata as a separate, less certain fallback.
-7. Looks up actions in VerbNet and FrameNet, which are existing English-language resources.
-8. Groups similar action words into an early DIY action taxonomy.
-9. Checks that the expected output files exist and contain valid rows.
-10. Creates a small worksheet for a person to check whether the extraction is correct.
-
-The code currently has 15 passing tests. Setup, testing, sample analysis, and verification can all be run from one Bash script.
-
-## What I found
-
-The pipeline processed all 1,703 clips.
-
-- It produced 8,823 possible action records.
-- It found at least one action in 1,100 clips, or 64.6%.
-- It found no action in 603 clips.
-- It found an object for 63.1% of the action records.
-- It found a tool directly connected to an action for only 3.5%.
-- VerbNet contained a mapping for 71.1% of the action words.
-- FrameNet contained a mapping for 69.4%.
-- The early DIY taxonomy contains 660 recurring actions in 80 groups.
-
-The clearest finding is that tool information is difficult to connect to actions. Many clips list tools in metadata, but the clip text does not say something direct like “cut the board with a saw.” I now preserve that metadata as a fallback, but I keep it separate because a listed tool may not belong to every action in the clip.
-
-These numbers describe extraction coverage. They do not tell me whether the extraction is correct, and they do not prove that this method improves search.
-
-## Why there is a manual review worksheet
-
-A parser can produce an answer that looks reasonable but is wrong. For example, it may treat the wrong noun as an object or treat a phrase after the word “by” as a tool.
-
-The pipeline creates:
+A user enters an action-based query such as:
 
 ```text
-project1_outputs/indexed-video-sample/quality/manual_review_sample.csv
+remove old faucet
 ```
 
-This file contains 60 examples. For each row, I need to enter `yes` or `no` in:
+The program searches all indexed clips and returns the three closest matches. It pays attention to the action and object, rather than only looking for videos about the same broad topic.
 
-- `action_correct`
-- `object_correct`
-- `tool_correct`
-
-I can leave a cell blank when that part does not apply. After labeling the worksheet, I run:
-
-```bash
-./scripts/run_local_pipeline.sh review
-```
-
-The script calculates human-reviewed precision and writes:
+For this query, the current system returns clips such as:
 
 ```text
-project1_outputs/indexed-video-sample/quality/manual_review_results.json
+1. Remove Faucet Handle
+2. Remove Faucet Stem
+3. Remove Corroded Tee Fitting
 ```
 
-This tells me how often the extracted actions, objects, and tools are actually correct in the reviewed sample.
+The first two results match both the action `remove` and the object `faucet`. The third matches the action but not the object, so it receives a lower score.
 
-## Unproven (for now)
+That is the first deliverable: use action semantics to search the indexed clips and return useful top results.
 
-I have not yet shown that structured action matching improves video search.
+The second deliverable compares two result sets for the same step:
 
-The current sample contains video clips, but it does not contain:
+```text
+Original top 3          Action-semantic top 3
+        \                     /
+         compare overlap, action, object, tool, and text scores
+```
 
-- Real project steps to use as search queries.
-- Human decisions about which clips best match those steps.
-- Dense embedding vectors for both steps and clips.
+## Why `indexed-videos-250.jsonl` is enough
 
-Without those three connected pieces, there is no fair search experiment to run. Creating fake queries, labels, or vectors would produce a meaningless accuracy number.
+I originally treated the nested `clips` list as if it were missing a separate step table. That was too strict.
 
-### 1. Project steps
+Each object inside `clips` is already an indexed, timestamped instructional step. It contains:
 
-Each step should include:
+- `name`: the short action or step name
+- `description`: a longer explanation when available
+- `goal`: the result of the step when available
+- `tools`: tool metadata
+- `supplies`: material metadata
+- `start` and `end`: the location of the clip inside the video
 
-- `step_id`
-- title and description
-- tools, materials, and techniques when available
-- dense embeddings
+The parent video also supplies its ID, title, summary, goal, category, URL, and YouTube ID.
 
-These steps are the search queries.
+This is enough to create a searchable corpus. The current sample contains 250 videos and 1,703 indexed clips. A larger file in the same format will let the same code search a larger corpus.
 
-### 2. Human clip comparisons
+Separate project steps and pairwise human labels could still be useful for a later formal accuracy study, but they are not required to make the top-three search system run.
 
-Each comparison should include:
+## Run a search
 
-- `comparison_id`
-- `step_id`
-- `clip_a_id`
-- `clip_b_id`
-- `winner_clip_id`
-- tie or uncertainty information, if it exists
-
-These comparisons provide the correct answers for the experiment.
-
-### 3. The referenced clips
-
-Each clip should include:
-
-- `clip_id`
-- title, description, and summary
-- transcript or captions when available
-- Gemini metadata
-- dense embeddings
-
-The same IDs must be used in all three files so the steps, candidates, and human answers can be joined correctly.
-
-I also need documentation for the embedding model: its name, vector size, source text, and whether the step and clip embeddings were generated in the same way.
-
-## What happens next
-
-The next work should happen in this order:
-
-1. Label the 60-row review worksheet.
-2. Calculate action, object, and tool precision.
-3. Inspect the 603 clips where no action was found.
-4. Fix the most common extraction mistakes.
-5. Obtain the step, comparison, clip, and embedding exports.
-6. Validate that all IDs and vectors connect correctly.
-7. Run dense, structured, and hybrid matching.
-8. Compare each method with the human choices.
-9. Report which method performs best and how certain the result is.
-
-At that point, I can answer the real research question: does understanding the exact action help retrieve a better instructional video?
-
-## Running the project
-
-The normal local command is:
+First prepare and index the sample:
 
 ```bash
 ./scripts/run_local_pipeline.sh all
 ```
 
-It creates the Python environment, installs dependencies, runs the tests, analyzes the sample, performs the quality checks, and verifies the output files.
+Then search it:
 
-Other commands are:
+```bash
+./scripts/run_local_pipeline.sh search "remove old faucet"
+```
+
+Another example is:
+
+```bash
+./scripts/run_local_pipeline.sh search "assess scum buildup"
+```
+
+The search command prints the top three matches and saves a JSON result under:
+
+```text
+project1_outputs/indexed-video-sample/search_<query>.json
+```
+
+Each result includes:
+
+- clip and video IDs
+- clip and video titles
+- YouTube URL
+- start and end timestamps
+- total structured score
+- action, object, tool, VerbNet, FrameNet, and taxonomy match scores
+
+## Run a comparison
+
+Compare a normal text-search top three with the new action-semantic top three:
+
+```bash
+./scripts/run_local_pipeline.sh compare "remove old faucet"
+```
+
+The command saves:
+
+```text
+project1_outputs/indexed-video-sample/comparison_remove_old_faucet.json
+```
+
+The comparison reports:
+
+- the original and new ranked clips
+- clips shared by both sets
+- clips found only by one method
+- mean text score for each set
+- mean structured score for each set
+- action, object, tool, VerbNet, FrameNet, and taxonomy averages
+
+For `remove old faucet`, the default text baseline retrieved clips containing words such as `remove` and `old`, including an unrelated old control and old filter. The action-semantic results retrieved `Remove Faucet Handle` and `Remove Faucet Stem`. The mean structured score increased from about `0.47` to `0.77`.
+
+By default, “original” means a TF-IDF text-search baseline because the current JSONL does not mark results with an `original_matches` field. If real original clip IDs are available for a step, compare those exact results with:
+
+```bash
+ORIGINAL_CLIP_IDS="clip-id-1,clip-id-2,clip-id-3" \
+  ./scripts/run_local_pipeline.sh compare "remove old faucet"
+```
+
+This makes the comparison code usable now and ready for actual original result IDs later.
+
+## How the search works
+
+The pipeline first reads all 1,703 clips and extracts structured information from their text.
+
+For example:
+
+```text
+Tighten the loose pipe connection with a wrench.
+```
+
+becomes approximately:
+
+```text
+action: tighten
+object: pipe connection
+tool: wrench
+```
+
+When a user enters a search query, the same parser extracts its action and object. The program compares the query with every indexed clip.
+
+The score uses six signals:
+
+1. Exact action match
+2. Object match
+3. Tool match
+4. VerbNet action-class match
+5. FrameNet frame match
+6. DIY action-taxonomy match
+
+The clips are sorted by the combined score, and the top three are returned.
+
+The current search is structured-only. Dense embeddings and a hybrid search can be added later, but they are not needed for the action-semantic search to work.
+
+## What has been accomplished
+
+The repository now has a complete local path that:
+
+1. Reads the nested IndexedVideo JSONL format.
+2. Creates stable local clip IDs.
+3. Preserves video URLs and clip timestamps.
+4. Extracts actions, objects, tools, and materials.
+5. Maps actions through VerbNet and FrameNet.
+6. Builds an early DIY action taxonomy.
+7. Creates a searchable structured index.
+8. Returns the top three matches for a new action query.
+9. Compares an original/text result set with the new result set.
+10. Generates quality reports and a human-review worksheet.
+11. Verifies the output files.
+
+The code currently has 17 passing tests, and Ruff reports no code-quality errors.
+
+## Current sample results
+
+After improving the parser for short title-style instructions, the current run produced:
+
+- 250 videos
+- 1,703 indexed clips
+- 9,246 extracted action records
+- 1,023 unique action lemmas
+- actions found in 1,335 clips, or 78.4%
+- 368 clips with no extracted action
+- objects found in 64.6% of action records
+- directly connected tools found in 7.6%
+- VerbNet mappings for 70.9% of action lemmas
+- FrameNet mappings for 69.2%
+- 670 recurring actions placed into 80 early DIY groups
+
+Tool matching is still the weakest signal. Many clips list tools in metadata without using a sentence such as “cut the board with a saw.” The pipeline keeps metadata tools as a separate fallback so they can help search without being confused with a certain grammatical connection.
+
+## Quality review
+
+The file below contains 60 extracted examples for manual checking:
+
+```text
+project1_outputs/indexed-video-sample/quality/manual_review_sample.csv
+```
+
+For each row, enter `yes` or `no` in:
+
+- `action_correct`
+- `object_correct`
+- `tool_correct`
+
+Then run:
+
+```bash
+./scripts/run_local_pipeline.sh review
+```
+
+This produces `manual_review_results.json` with human-reviewed precision. This review measures how reliable the parser is; it does not prevent us from running and inspecting searches now.
+
+## What should happen next
+
+The next development work is:
+
+1. Run a set of realistic searches and inspect the top three results.
+2. Label the 60-row quality worksheet.
+3. Fix the most common action, object, and tool errors.
+4. Run the same pipeline on a larger IndexedVideo export.
+5. Feed actual original match IDs into the working comparison command.
+6. Add a repeatable benchmark using clip names as queries and their aligned clips as known matches.
+7. Add an embedding baseline and test a hybrid ranking.
+
+The most useful new data is simply more records in the same format. It is especially helpful if more clips contain descriptions, goals, captions, or transcripts. Real database clip IDs would also be helpful, but the current code can generate stable local IDs from the video ID and clip position.
+
+## Other commands
 
 ```bash
 ./scripts/run_local_pipeline.sh setup   # install the project
 ./scripts/run_local_pipeline.sh test    # run tests and code checks
-./scripts/run_local_pipeline.sh sample  # analyze the 250-video sample
-./scripts/run_local_pipeline.sh review  # summarize human review labels
+./scripts/run_local_pipeline.sh sample  # rebuild the structured index
+./scripts/run_local_pipeline.sh search "install a thermostat"
+./scripts/run_local_pipeline.sh compare "install a thermostat"
+./scripts/run_local_pipeline.sh review  # summarize manual labels
 ./scripts/run_local_pipeline.sh --help
 ```
 
-The main output files are:
+The main generated files are under:
 
-- `sample_analysis_report.json`: overall sample results
-- `month1/action_object_tool_triples.csv`: extracted actions, objects, and tools
-- `month2/diy_actionnet_v1.jsonl`: early DIY action groups
-- `quality/extraction_quality_summary.json`: coverage statistics
-- `quality/manual_review_sample.csv`: examples to label manually
-- `structured_analysis_verification_report.json`: output validation results
-
-The complete Month 3 experiment can be run later with:
-
-```bash
-CLIPS_JSONL=/secure/path/clips.jsonl \
-STEPS_JSONL=/secure/path/steps.jsonl \
-PAIRWISE_JSONL=/secure/path/pairwise.jsonl \
-PROJECT_OUTPUT_DIR=/secure/path/project1_outputs \
-  ./scripts/run_local_pipeline.sh full
+```text
+project1_outputs/indexed-video-sample/
 ```
 
-The input schemas are in `data_contracts/`. The current data status is in `DATA_COMPLETION_STATUS.md`, and the local test record is in `LOCAL_VERIFICATION.md`.
+The input schemas are in `data_contracts/`, the detailed data status is in `DATA_COMPLETION_STATUS.md`, and the local test record is in `LOCAL_VERIFICATION.md`.

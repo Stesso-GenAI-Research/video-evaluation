@@ -13,10 +13,11 @@ _NON_NARRATIVE_INDEXED_VIDEO_METADATA_PREFIXES = (
     # but treating labels and inventories as sentences creates false actions
     # such as "clean" from a category or "scrub" from a brush name.
     "gemini_metadata.source_video",
-    "gemini_metadata.clip.tools",
-    "gemini_metadata.clip.supplies",
-    "gemini_metadata.clip.source_tools_text",
-    "gemini_metadata.clip.source_supplies_text",
+    # Canonical clip name/description/goal already live in the typed top-level
+    # fields. Everything under this metadata node is provenance, duplicate
+    # variants, timestamps, or associated inventory; parsing it again would
+    # duplicate actions and turn inventory labels into fake sentences.
+    "gemini_metadata.clip",
 )
 
 

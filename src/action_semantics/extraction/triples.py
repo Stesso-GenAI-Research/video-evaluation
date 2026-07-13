@@ -44,7 +44,10 @@ def _content_lemmas(tokens: Iterable[Token]) -> list[str]:
     lemmas: list[str] = []
     for token in tokens:
         lemma = normalize_term(token.lemma_ or token.text)
-        if lemma and not token.is_stop and token.pos_ in {"NOUN", "PROPN", "VERB", "ADJ", "NUM"}:
+        # Object identity should come from nouns. Adjectives such as "old"
+        # otherwise make unrelated results (old faucet / old control) look
+        # like object matches.
+        if lemma and not token.is_stop and token.pos_ in {"NOUN", "PROPN", "VERB", "NUM"}:
             lemmas.append(lemma)
     return sorted(set(lemmas))
 
@@ -70,9 +73,12 @@ def _first_object_span(verb: Token) -> list[Token]:
 
 
 def _prep_object_span(verb: Token, prep_lemmas: set[str]) -> list[Token]:
-    for child in verb.children:
-        if child.dep_ == "prep" and child.lemma_.lower() in prep_lemmas:
-            objects = [grand for grand in child.children if grand.dep_ in _OBJECT_DEPS]
+    # spaCy sometimes attaches "with a wrench" to the direct object rather
+    # than the verb. Search the full verb phrase so common instructions such
+    # as "tighten the connection with a wrench" still preserve the tool.
+    for token in verb.subtree:
+        if token.dep_ == "prep" and token.lemma_.lower() in prep_lemmas:
+            objects = [grand for grand in token.children if grand.dep_ in _OBJECT_DEPS]
             if objects:
                 return _subtree_without_nested_verbs(objects[0])
     return []
@@ -143,7 +149,13 @@ def triples_from_doc(segment: TextSegment, doc: Doc) -> list[ActionTriple]:
 def extract_triples(segments: Iterable[TextSegment], model_name: str) -> list[ActionTriple]:
     nlp = load_spacy_model(model_name)
     segment_list = list(segments)
-    docs = nlp.pipe([segment.text for segment in segment_list], batch_size=64)
+    parser_texts = [
+        segment.text[:1].lower() + segment.text[1:]
+        if segment.source_field in {"title", "query"} and segment.text
+        else segment.text
+        for segment in segment_list
+    ]
+    docs = nlp.pipe(parser_texts, batch_size=64)
     rows: list[ActionTriple] = []
     for segment, doc in zip(segment_list, docs, strict=True):
         rows.extend(triples_from_doc(segment, doc))

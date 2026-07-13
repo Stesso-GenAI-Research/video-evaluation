@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -38,9 +39,26 @@ def _clip_inventory(clip: ClipRecord) -> tuple[list[str], list[str]]:
         return [], []
     tools = metadata.get("tools", [])
     supplies = metadata.get("supplies", [])
+
+    def with_alternatives(values: Any, item_key: str) -> list[str]:
+        output = list(values) if isinstance(values, list) else []
+        items = metadata.get(item_key, [])
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if isinstance(item.get("name"), str):
+                    output.append(item["name"])
+                alternatives = item.get("alternatives", [])
+                if isinstance(alternatives, list):
+                    output.extend(
+                        value for value in alternatives if isinstance(value, str)
+                    )
+        return output
+
     return (
-        _inventory_terms(tools if isinstance(tools, list) else []),
-        _inventory_terms(supplies if isinstance(supplies, list) else []),
+        _inventory_terms(with_alternatives(tools, "tool_items")),
+        _inventory_terms(with_alternatives(supplies, "supply_items")),
     )
 
 
@@ -146,7 +164,7 @@ def run_month1(
     )
     write_jsonl(verbnet_path, verbnet_rows)
     summary_path.write_text(
-        __import__("json").dumps(month1_summary(triples), indent=2, sort_keys=True),
+        json.dumps(month1_summary(triples), indent=2, sort_keys=True),
         encoding="utf-8",
     )
 

@@ -12,14 +12,18 @@ COMMAND="${1:-all}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/run_local_pipeline.sh [setup|test|sample|review|all|full]
+Usage: ./scripts/run_local_pipeline.sh [setup|test|build|search|compare|compare-batch|benchmark|review|all]
 
   setup   Create a Python 3.11-3.13 virtual environment and install dependencies.
   test    Compile the project, run pytest, run Ruff, and show CLI help.
-  sample  Run the real IndexedVideo sample through Months 1 and 2.
+  build   Build the action-semantic index from the IndexedVideo JSONL file.
+  sample  Backward-compatible alias for build.
+  search  Search clips; extra flags such as --method and --top-k are forwarded.
+  compare Diff an explicit old/lexical set against structured or hybrid search.
+  compare-batch  Compare a JSONL file of real original rankings and make a blind review CSV.
+  benchmark Run the field-held-out lexical/structured/hybrid experiment.
   review  Summarize the human labels added to manual_review_sample.csv.
-  all     Run setup, test, and sample. This is the normal local command.
-  full    Run Months 1-3 on complete exports supplied through environment variables.
+  all     Test, build, and benchmark. Setup runs only if the environment is absent.
 
 Optional environment variables:
   SAMPLE_JSONL        Path to indexed-videos-250.jsonl for the sample command.
@@ -27,7 +31,6 @@ Optional environment variables:
   PROJECT_OUTPUT_DIR  Parent output directory; defaults to project1_outputs/.
   VENV_DIR            Virtual environment location; defaults to .venv/.
 
-The full command also requires CLIPS_JSONL, STEPS_JSONL, and PAIRWISE_JSONL.
 EOF
 }
 
@@ -78,12 +81,10 @@ run_sample() {
     echo "Set SAMPLE_JSONL to the private IndexedVideo JSONL path and try again." >&2
     return 1
   fi
-  "$VENV_DIR/bin/action-semantics" run-indexed-video-analysis \
+  "$VENV_DIR/bin/action-semantics" build-index \
     --indexed-videos-jsonl "$SAMPLE_JSONL" \
     --output-dir "$SAMPLE_OUTPUT_DIR" \
     --min-taxonomy-support 2
-  "$VENV_DIR/bin/action-semantics" verify-structured-outputs \
-    --output-dir "$SAMPLE_OUTPUT_DIR"
   echo
   echo "Sample report: $SAMPLE_OUTPUT_DIR/sample_analysis_report.json"
   echo "Review worksheet: $SAMPLE_OUTPUT_DIR/quality/manual_review_sample.csv"
@@ -97,42 +98,117 @@ summarize_review() {
     echo "Run the sample command first." >&2
     return 1
   fi
-  "$VENV_DIR/bin/action-semantics" summarize-review \
+  "$VENV_DIR/bin/action-semantics" review \
     --review-csv "$review_csv" \
     --output-json "$SAMPLE_OUTPUT_DIR/quality/manual_review_results.json"
 }
 
-run_full() {
+search_sample() {
   ensure_environment
-  : "${CLIPS_JSONL:?Set CLIPS_JSONL to the complete clips.jsonl export.}"
-  : "${STEPS_JSONL:?Set STEPS_JSONL to the complete steps.jsonl export.}"
-  : "${PAIRWISE_JSONL:?Set PAIRWISE_JSONL to the complete pairwise.jsonl export.}"
-  "$VENV_DIR/bin/action-semantics" validate-inputs \
-    --clips-jsonl "$CLIPS_JSONL" \
-    --steps-jsonl "$STEPS_JSONL" \
-    --pairwise-jsonl "$PAIRWISE_JSONL" \
-    --output-dir "$PROJECT_OUTPUT_DIR"
-  "$VENV_DIR/bin/action-semantics" run-all \
-    --clips-jsonl "$CLIPS_JSONL" \
-    --steps-jsonl "$STEPS_JSONL" \
-    --pairwise-jsonl "$PAIRWISE_JSONL" \
-    --output-dir "$PROJECT_OUTPUT_DIR" \
-    --clip-limit 0 \
-    --min-taxonomy-support 2 \
-    --hybrid-alpha 0.5
+  local query="${2:-${SEARCH_QUERY:-}}"
+  if [[ -z "$query" ]]; then
+    echo 'Provide a query, for example: ./scripts/run_local_pipeline.sh search "remove old faucet"' >&2
+    return 1
+  fi
+  if [[ ! -f "$SAMPLE_OUTPUT_DIR/month1/action_object_tool_triples.jsonl" ]]; then
+    run_sample
+  fi
+  local slug
+  slug="$(printf '%s' "$query" | tr '[:upper:] ' '[:lower:]_' | tr -cd 'a-z0-9_-')"
+  local query_hash
+  query_hash="$(printf '%s' "$query" | shasum -a 256 | cut -c 1-8)"
+  slug="${slug:0:48}_${query_hash}"
+  "$VENV_DIR/bin/action-semantics" search \
+    --query "$query" \
+    --clips-jsonl "$SAMPLE_OUTPUT_DIR/input/indexed_video_clips.jsonl" \
+    --month1-dir "$SAMPLE_OUTPUT_DIR/month1" \
+    --month2-dir "$SAMPLE_OUTPUT_DIR/month2" \
+    --output-json "$SAMPLE_OUTPUT_DIR/search_${slug}.json" \
+    "${@:3}"
+}
+
+compare_sample() {
+  ensure_environment
+  local query="${2:-${SEARCH_QUERY:-}}"
+  if [[ -z "$query" ]]; then
+    echo 'Provide a query, for example: ./scripts/run_local_pipeline.sh compare "remove old faucet"' >&2
+    return 1
+  fi
+  if [[ ! -f "$SAMPLE_OUTPUT_DIR/month1/action_object_tool_triples.jsonl" ]]; then
+    run_sample
+  fi
+  local slug
+  slug="$(printf '%s' "$query" | tr '[:upper:] ' '[:lower:]_' | tr -cd 'a-z0-9_-')"
+  local query_hash
+  query_hash="$(printf '%s' "$query" | shasum -a 256 | cut -c 1-8)"
+  slug="${slug:0:48}_${query_hash}"
+  local compare_command=(
+    "$VENV_DIR/bin/action-semantics" compare
+    --query "$query"
+    --clips-jsonl "$SAMPLE_OUTPUT_DIR/input/indexed_video_clips.jsonl"
+    --month1-dir "$SAMPLE_OUTPUT_DIR/month1"
+    --month2-dir "$SAMPLE_OUTPUT_DIR/month2"
+    --output-json "$SAMPLE_OUTPUT_DIR/comparison_${slug}.json"
+  )
+  if [[ -n "${ORIGINAL_CLIP_IDS:-}" ]]; then
+    local clip_id
+    IFS=',' read -r -a original_ids <<< "$ORIGINAL_CLIP_IDS"
+    for clip_id in "${original_ids[@]}"; do
+      compare_command+=(--original-clip-id "$clip_id")
+    done
+  fi
+  compare_command+=("${@:3}")
+  "${compare_command[@]}"
+}
+
+compare_batch_sample() {
+  ensure_environment
+  local comparisons_jsonl="${2:-}"
+  if [[ -z "$comparisons_jsonl" || ! -f "$comparisons_jsonl" ]]; then
+    echo 'Provide an existing JSONL file: ./scripts/run_local_pipeline.sh compare-batch path/to/comparisons.jsonl' >&2
+    return 1
+  fi
+  if [[ ! -f "$SAMPLE_OUTPUT_DIR/month1/action_object_tool_triples.jsonl" ]]; then
+    run_sample
+  fi
+  "$VENV_DIR/bin/action-semantics" compare-batch \
+    --comparisons-jsonl "$comparisons_jsonl" \
+    --clips-jsonl "$SAMPLE_OUTPUT_DIR/input/indexed_video_clips.jsonl" \
+    --month1-dir "$SAMPLE_OUTPUT_DIR/month1" \
+    --month2-dir "$SAMPLE_OUTPUT_DIR/month2" \
+    --output-dir "$SAMPLE_OUTPUT_DIR/batch-comparison" \
+    "${@:3}"
+  echo "Blind review worksheet: $SAMPLE_OUTPUT_DIR/batch-comparison/blind_review.csv"
+}
+
+benchmark_sample() {
+  ensure_environment
+  if [[ ! -f "$SAMPLE_OUTPUT_DIR/month1/action_object_tool_triples.jsonl" ]]; then
+    run_sample
+  fi
+  "$VENV_DIR/bin/action-semantics" benchmark \
+    --clips-jsonl "$SAMPLE_OUTPUT_DIR/input/indexed_video_clips.jsonl" \
+    --month1-dir "$SAMPLE_OUTPUT_DIR/month1" \
+    --month2-dir "$SAMPLE_OUTPUT_DIR/month2" \
+    --output-dir "$SAMPLE_OUTPUT_DIR/benchmark" \
+    "${@:2}"
+  echo "Benchmark summary: $SAMPLE_OUTPUT_DIR/benchmark/benchmark_summary.json"
 }
 
 case "$COMMAND" in
   setup) setup ;;
   test) run_tests ;;
-  sample) run_sample ;;
+  build|sample) run_sample ;;
+  search) search_sample "$@" ;;
+  compare) compare_sample "$@" ;;
+  compare-batch) compare_batch_sample "$@" ;;
   review) summarize_review ;;
   all)
-    setup
     run_tests
     run_sample
+    benchmark_sample
     ;;
-  full) run_full ;;
+  benchmark) benchmark_sample "$@" ;;
   -h|--help|help)
     usage
     ;;

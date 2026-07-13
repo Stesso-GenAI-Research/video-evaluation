@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from enum import Enum
 from pathlib import Path
 from typing import Annotated
 
@@ -13,11 +14,26 @@ from .month1 import run_month1 as run_month1_impl
 from .month2 import run_month2 as run_month2_impl
 from .quality import require_nonempty_report, validate_jsonl_basic
 from .quality_review import summarize_manual_review
+from .retrieval.batch_comparison import run_batch_comparison
 from .retrieval.experiments import run_month3 as run_month3_impl
+from .retrieval.comparison import compare_result_sets, write_comparison_results
+from .retrieval.benchmark import run_field_heldout_benchmark
+from .retrieval.search import rank_indexed_clips, write_search_results
 from .sample_analysis import run_indexed_video_analysis as run_indexed_video_analysis_impl
 from .verification import verify_output_repository, verify_structured_analysis
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+
+
+class SearchMethodChoice(str, Enum):
+    lexical = "lexical"
+    structured = "structured"
+    hybrid = "hybrid"
+
+
+class ChallengerMethodChoice(str, Enum):
+    structured = "structured"
+    hybrid = "hybrid"
 
 
 def _config(output_dir: Path, spacy_model: str, random_seed: int, clip_limit: int | None) -> PipelineConfig:
@@ -31,7 +47,7 @@ def _config(output_dir: Path, spacy_model: str, random_seed: int, clip_limit: in
     )
 
 
-@app.command()
+@app.command(hidden=True)
 def validate_inputs(
     clips_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
     steps_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
@@ -56,7 +72,7 @@ def validate_inputs(
     info(f"Input validation passed. Report written to {report_path}")
 
 
-@app.command()
+@app.command(hidden=True)
 def prepare_indexed_videos(
     indexed_videos_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
     output_dir: Annotated[Path, typer.Option()],
@@ -66,15 +82,15 @@ def prepare_indexed_videos(
     info(f"Prepared {paths['clips']}. Data profile written to {paths['profile']}")
 
 
-@app.command()
-def run_indexed_video_analysis(
+@app.command("build-index")
+def build_index(
     indexed_videos_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
     output_dir: Annotated[Path, typer.Option()],
     min_taxonomy_support: Annotated[int, typer.Option(min=1)] = 2,
     spacy_model: Annotated[str, typer.Option()] = DEFAULT_SPACY_MODEL,
     random_seed: Annotated[int, typer.Option()] = DEFAULT_RANDOM_SEED,
 ) -> None:
-    """Run the real sample through Month 1/2, then record why Month 3 cannot run."""
+    """Build and verify the structured search index from an IndexedVideo export."""
     paths = run_indexed_video_analysis_impl(
         indexed_videos_jsonl=indexed_videos_jsonl,
         output_dir=output_dir,
@@ -85,7 +101,7 @@ def run_indexed_video_analysis(
     info(f"IndexedVideo analysis complete. Report written to {paths['report']}")
 
 
-@app.command()
+@app.command(hidden=True)
 def run_month1(
     clips_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
     steps_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
@@ -103,7 +119,7 @@ def run_month1(
     info(f"Month 1 complete. Output directory: {paths['month_dir']}")
 
 
-@app.command()
+@app.command(hidden=True)
 def run_month2(
     month1_dir: Annotated[Path, typer.Option(exists=True, file_okay=False, readable=True)],
     output_dir: Annotated[Path, typer.Option()],
@@ -120,7 +136,7 @@ def run_month2(
     info(f"Month 2 complete. Output directory: {paths['month_dir']}")
 
 
-@app.command()
+@app.command(hidden=True)
 def run_month3(
     clips_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
     steps_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
@@ -147,7 +163,7 @@ def run_month3(
     info(f"Month 3 complete. Output directory: {paths['month_dir']}")
 
 
-@app.command()
+@app.command(hidden=True)
 def run_all(
     clips_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
     steps_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
@@ -182,7 +198,7 @@ def run_all(
     info(f"Months 1-3 complete and verified. Output directory: {output_dir}")
 
 
-@app.command()
+@app.command(hidden=True)
 def verify_repository(
     output_dir: Annotated[Path, typer.Option(exists=True, file_okay=False, readable=True)],
 ) -> None:
@@ -191,7 +207,7 @@ def verify_repository(
     info(f"Repository verification passed. Report written to {output_dir / 'verification_report.json'}")
 
 
-@app.command()
+@app.command(hidden=True)
 def verify_structured_outputs(
     output_dir: Annotated[Path, typer.Option(exists=True, file_okay=False, readable=True)],
 ) -> None:
@@ -203,8 +219,8 @@ def verify_structured_outputs(
     )
 
 
-@app.command()
-def summarize_review(
+@app.command("review")
+def review(
     review_csv: Annotated[Path, typer.Option(exists=True, readable=True)],
     output_json: Annotated[Path, typer.Option()],
 ) -> None:
@@ -212,6 +228,119 @@ def summarize_review(
     summary = summarize_manual_review(review_csv, output_json)
     labeled = summary["overall"]["action_correct"]["labeled"]
     info(f"Summarized {labeled} labeled actions. Report written to {output_json}")
+
+
+@app.command("search")
+def search(
+    query: Annotated[str, typer.Option()],
+    clips_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
+    month1_dir: Annotated[Path, typer.Option(exists=True, file_okay=False, readable=True)],
+    month2_dir: Annotated[Path, typer.Option(exists=True, file_okay=False, readable=True)],
+    output_json: Annotated[Path | None, typer.Option()] = None,
+    top_k: Annotated[int, typer.Option(min=1)] = 3,
+    method: Annotated[SearchMethodChoice, typer.Option()] = SearchMethodChoice.hybrid,
+    hybrid_alpha: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.5,
+    max_per_video: Annotated[int | None, typer.Option(min=1)] = None,
+    spacy_model: Annotated[str, typer.Option()] = DEFAULT_SPACY_MODEL,
+) -> None:
+    """Search the canonical clip corpus with lexical, structured, or hybrid rank."""
+    results = rank_indexed_clips(
+        query_text=query,
+        clips_jsonl=clips_jsonl,
+        month1_dir=month1_dir,
+        month2_dir=month2_dir,
+        spacy_model=spacy_model,
+        top_k=top_k,
+        method=method.value,
+        hybrid_alpha=hybrid_alpha,
+        max_per_video=max_per_video,
+    )
+    if output_json is not None:
+        write_search_results(output_json, results)
+        info(f"Search results written to {output_json}")
+    typer.echo(json.dumps(results, indent=2, sort_keys=True))
+
+
+@app.command("compare")
+def compare(
+    query: Annotated[str, typer.Option()],
+    clips_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
+    month1_dir: Annotated[Path, typer.Option(exists=True, file_okay=False, readable=True)],
+    month2_dir: Annotated[Path, typer.Option(exists=True, file_okay=False, readable=True)],
+    output_json: Annotated[Path, typer.Option()],
+    original_clip_id: Annotated[list[str] | None, typer.Option()] = None,
+    top_k: Annotated[int, typer.Option(min=1)] = 3,
+    challenger_method: Annotated[
+        ChallengerMethodChoice, typer.Option()
+    ] = ChallengerMethodChoice.hybrid,
+    hybrid_alpha: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.5,
+    spacy_model: Annotated[str, typer.Option()] = DEFAULT_SPACY_MODEL,
+) -> None:
+    """Describe how an explicit old set or lexical baseline differs from a new set."""
+    results = compare_result_sets(
+        query_text=query,
+        clips_jsonl=clips_jsonl,
+        month1_dir=month1_dir,
+        month2_dir=month2_dir,
+        spacy_model=spacy_model,
+        top_k=top_k,
+        original_clip_ids=original_clip_id,
+        challenger_method=challenger_method.value,
+        hybrid_alpha=hybrid_alpha,
+    )
+    write_comparison_results(output_json, results)
+    info(f"Comparison written to {output_json}")
+    typer.echo(json.dumps(results, indent=2, sort_keys=True))
+
+
+@app.command("benchmark")
+def benchmark(
+    clips_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
+    month1_dir: Annotated[Path, typer.Option(exists=True, file_okay=False, readable=True)],
+    month2_dir: Annotated[Path, typer.Option(exists=True, file_okay=False, readable=True)],
+    output_dir: Annotated[Path, typer.Option()],
+    hybrid_alpha: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.5,
+    spacy_model: Annotated[str, typer.Option()] = DEFAULT_SPACY_MODEL,
+) -> None:
+    """Run a title-to-description benchmark without candidate-title leakage."""
+    paths = run_field_heldout_benchmark(
+        clips_jsonl=clips_jsonl,
+        month1_dir=month1_dir,
+        month2_dir=month2_dir,
+        output_dir=output_dir,
+        spacy_model=spacy_model,
+        hybrid_alpha=hybrid_alpha,
+    )
+    info(f"Benchmark complete. Summary written to {paths['summary']}")
+
+
+@app.command("compare-batch")
+def compare_batch(
+    comparisons_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
+    clips_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
+    month1_dir: Annotated[Path, typer.Option(exists=True, file_okay=False, readable=True)],
+    month2_dir: Annotated[Path, typer.Option(exists=True, file_okay=False, readable=True)],
+    output_dir: Annotated[Path, typer.Option()],
+    challenger_method: Annotated[
+        ChallengerMethodChoice, typer.Option()
+    ] = ChallengerMethodChoice.hybrid,
+    top_k: Annotated[int, typer.Option(min=1)] = 3,
+    hybrid_alpha: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.5,
+    spacy_model: Annotated[str, typer.Option()] = DEFAULT_SPACY_MODEL,
+) -> None:
+    """Compare many supplied original rankings and create a blinded review sheet."""
+    paths = run_batch_comparison(
+        comparisons_jsonl=comparisons_jsonl,
+        clips_jsonl=clips_jsonl,
+        month1_dir=month1_dir,
+        month2_dir=month2_dir,
+        output_dir=output_dir,
+        spacy_model=spacy_model,
+        challenger_method=challenger_method.value,
+        top_k=top_k,
+        hybrid_alpha=hybrid_alpha,
+    )
+    info(f"Batch comparison complete. Summary written to {paths['summary']}")
 
 
 if __name__ == "__main__":

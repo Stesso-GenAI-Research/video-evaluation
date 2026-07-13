@@ -27,12 +27,6 @@ def jaccard(left: Iterable[str], right: Iterable[str]) -> float:
     return len(left_set & right_set) / len(left_set | right_set)
 
 
-def max_pairwise_jaccard(left_rows: list[list[str]], right_rows: list[list[str]]) -> float:
-    if not left_rows or not right_rows:
-        return 0.0
-    return max(jaccard(left, right) for left in left_rows for right in right_rows)
-
-
 @dataclass(frozen=True)
 class StructuredResources:
     triples: list[ActionTriple]
@@ -64,62 +58,119 @@ class StructuredResources:
 
 @dataclass(frozen=True)
 class StructuredWeights:
-    action: float = 0.30
-    verbnet: float = 0.15
-    framenet: float = 0.10
-    taxonomy: float = 0.15
-    object: float = 0.20
+    """Weights for one aligned action-object-tool comparison.
+
+    VerbNet and FrameNet are fallbacks inside the action component.  They are
+    not added again as independent evidence.  The exploratory taxonomy is
+    deliberately excluded from the production score until it has been
+    manually evaluated.
+    """
+
+    action: float = 0.55
+    object: float = 0.35
     tool: float = 0.10
 
-    def normalized(self) -> "StructuredWeights":
-        total = self.action + self.verbnet + self.framenet + self.taxonomy + self.object + self.tool
+    def normalized(self, *, has_object: bool = True, has_tool: bool = True) -> "StructuredWeights":
+        object_weight = self.object if has_object else 0.0
+        tool_weight = self.tool if has_tool else 0.0
+        total = self.action + object_weight + tool_weight
         if total <= 0:
             raise ValueError("Structured weights must sum to a positive value.")
         return StructuredWeights(
             action=self.action / total,
-            verbnet=self.verbnet / total,
-            framenet=self.framenet / total,
-            taxonomy=self.taxonomy / total,
-            object=self.object / total,
-            tool=self.tool / total,
+            object=object_weight / total,
+            tool=tool_weight / total,
         )
 
 
-def _action_match(step_triples: list[ActionTriple], clip_triples: list[ActionTriple]) -> float:
-    return jaccard(
-        [triple.action_lemma for triple in step_triples],
-        [triple.action_lemma for triple in clip_triples],
+def _query_term_coverage(query_terms: Iterable[str], candidate_terms: Iterable[str]) -> float:
+    """Measure how much of the short query is present in the candidate.
+
+    Candidate descriptions are usually much longer than queries.  A symmetric
+    Jaccard score incorrectly punishes a correct candidate for containing extra
+    detail, so the denominator is the query vocabulary only.
+    """
+    query = {value for value in query_terms if value}
+    candidate = {value for value in candidate_terms if value}
+    if not query or not candidate:
+        return 0.0
+    return len(query & candidate) / len(query)
+
+
+def _action_similarity(
+    query: ActionTriple,
+    candidate: ActionTriple,
+    resources: StructuredResources,
+) -> tuple[float, float, float, float]:
+    exact = float(query.action_lemma == candidate.action_lemma)
+    verbnet = jaccard(
+        resources.verbnet_lookup.get(query.action_lemma, set()),
+        resources.verbnet_lookup.get(candidate.action_lemma, set()),
     )
+    framenet = jaccard(
+        resources.framenet_lookup.get(query.action_lemma, set()),
+        resources.framenet_lookup.get(candidate.action_lemma, set()),
+    )
+    if exact:
+        return 1.0, exact, verbnet, framenet
+    # These mappings are useful backoffs, but weaker than the same verb.
+    return max(0.80 * verbnet, 0.70 * framenet), exact, verbnet, framenet
 
 
-def _verbnet_match(
-    step_triples: list[ActionTriple],
-    clip_triples: list[ActionTriple],
-    lookup: dict[str, set[str]],
-) -> float:
-    left = set().union(*(lookup.get(triple.action_lemma, set()) for triple in step_triples)) if step_triples else set()
-    right = set().union(*(lookup.get(triple.action_lemma, set()) for triple in clip_triples)) if clip_triples else set()
-    return jaccard(left, right)
-
-
-def _framenet_match(
-    step_triples: list[ActionTriple],
-    clip_triples: list[ActionTriple],
-    lookup: dict[str, set[str]],
-) -> float:
-    left = set().union(*(lookup.get(triple.action_lemma, set()) for triple in step_triples)) if step_triples else set()
-    right = set().union(*(lookup.get(triple.action_lemma, set()) for triple in clip_triples)) if clip_triples else set()
-    return jaccard(left, right)
-
-
-def _taxonomy_match(
-    step_triples: list[ActionTriple],
-    clip_triples: list[ActionTriple],
+def _taxonomy_pair_match(
+    query: ActionTriple,
+    candidate: ActionTriple,
     lookup: dict[str, int],
 ) -> float:
-    left = [str(lookup[triple.action_lemma]) for triple in step_triples if triple.action_lemma in lookup]
-    right = [str(lookup[triple.action_lemma]) for triple in clip_triples if triple.action_lemma in lookup]
-    return jaccard(left, right)
+    left = lookup.get(query.action_lemma)
+    right = lookup.get(candidate.action_lemma)
+    return float(left is not None and left == right)
+
+
+def _triple_pair_score(
+    query: ActionTriple,
+    candidate: ActionTriple,
+    resources: StructuredResources,
+    base_weights: StructuredWeights,
+) -> dict[str, float]:
+    action, exact, verbnet, framenet = _action_similarity(query, candidate, resources)
+    object_score = _query_term_coverage(query.object_lemmas, candidate.object_lemmas)
+    query_tools = query.tool_lemmas or query.context_tool_lemmas
+    candidate_tools = candidate.tool_lemmas or candidate.context_tool_lemmas
+    tool_score = _query_term_coverage(query_tools, candidate_tools)
+    taxonomy = _taxonomy_pair_match(query, candidate, resources.taxonomy_lookup)
+
+    # A positive/negative mismatch changes the meaning of an instruction.  It
+    # must not be rescued by a shared object or tool.
+    if query.negated != candidate.negated:
+        action = 0.0
+        total = 0.0
+    else:
+        weights = base_weights.normalized(
+            has_object=bool(query.object_lemmas),
+            has_tool=bool(query_tools),
+        )
+        component_score = (
+            weights.action * action
+            + weights.object * object_score
+            + weights.tool * tool_score
+        )
+        # Object/tool evidence is meaningful only when the actions are at
+        # least compatible.  This prevents an unrelated action on the same
+        # object from being ranked as a good semantic match.
+        confidence = 0.90 + 0.10 * min(query.confidence, candidate.confidence)
+        total = action * component_score * confidence
+
+    return {
+        "structured_score": float(total),
+        "action_match": float(action),
+        "exact_action_match": float(exact),
+        "verbnet_match": float(verbnet),
+        "framenet_match": float(framenet),
+        "taxonomy_match": float(taxonomy),
+        "object_match": float(object_score),
+        "tool_match": float(tool_score),
+    }
 
 
 def structured_score(
@@ -128,37 +179,42 @@ def structured_score(
     resources: StructuredResources,
     weights: StructuredWeights | None = None,
 ) -> dict[str, float]:
-    weights = (weights or StructuredWeights()).normalized()
     step_triples = resources.triples_for("step", step_id)
     clip_triples = resources.triples_for("clip", clip_id)
-    object_score = max_pairwise_jaccard(
-        [triple.object_lemmas for triple in step_triples],
-        [triple.object_lemmas for triple in clip_triples],
+    metric_names = (
+        "structured_score",
+        "action_match",
+        "exact_action_match",
+        "verbnet_match",
+        "framenet_match",
+        "taxonomy_match",
+        "object_match",
+        "tool_match",
     )
-    tool_score = max_pairwise_jaccard(
-        [triple.tool_lemmas or triple.context_tool_lemmas for triple in step_triples],
-        [triple.tool_lemmas or triple.context_tool_lemmas for triple in clip_triples],
-    )
-    action_score = _action_match(step_triples, clip_triples)
-    verbnet_score = _verbnet_match(step_triples, clip_triples, resources.verbnet_lookup)
-    framenet_score = _framenet_match(step_triples, clip_triples, resources.framenet_lookup)
-    taxonomy_score = _taxonomy_match(step_triples, clip_triples, resources.taxonomy_lookup)
-    total = (
-        weights.action * action_score
-        + weights.verbnet * verbnet_score
-        + weights.framenet * framenet_score
-        + weights.taxonomy * taxonomy_score
-        + weights.object * object_score
-        + weights.tool * tool_score
-    )
+    if not step_triples or not clip_triples:
+        return {name: 0.0 for name in metric_names}
+
+    base_weights = weights or StructuredWeights()
+    aligned: list[dict[str, float]] = []
+    for query in step_triples:
+        candidates = [
+            _triple_pair_score(query, candidate, resources, base_weights)
+            for candidate in clip_triples
+        ]
+        aligned.append(
+            max(
+                candidates,
+                key=lambda row: (
+                    row["structured_score"],
+                    row["action_match"],
+                    row["object_match"],
+                    row["tool_match"],
+                ),
+            )
+        )
     return {
-        "structured_score": float(total),
-        "action_match": float(action_score),
-        "verbnet_match": float(verbnet_score),
-        "framenet_match": float(framenet_score),
-        "taxonomy_match": float(taxonomy_score),
-        "object_match": float(object_score),
-        "tool_match": float(tool_score),
+        name: float(sum(row[name] for row in aligned) / len(aligned))
+        for name in metric_names
     }
 
 

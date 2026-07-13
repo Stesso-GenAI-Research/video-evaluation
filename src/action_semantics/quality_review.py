@@ -27,6 +27,17 @@ def _sample(rows: list[Any], count: int, rng: random.Random) -> list[Any]:
     return rng.sample(rows, count)
 
 
+def _contains_human_labels(path: Path) -> bool:
+    if not path.exists():
+        return False
+    with path.open(newline="", encoding="utf-8") as handle:
+        return any(
+            (row.get(column) or "").strip()
+            for row in csv.DictReader(handle)
+            for column in ("action_correct", "object_correct", "tool_correct")
+        )
+
+
 def build_quality_review(
     *,
     clips_jsonl: Path,
@@ -115,10 +126,14 @@ def build_quality_review(
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = output_dir / "extraction_quality_summary.json"
     review_path = output_dir / "manual_review_sample.csv"
+    preserved_labeled_review = _contains_human_labels(review_path)
+    if preserved_labeled_review:
+        review_path = output_dir / "manual_review_sample.generated.csv"
     summary["manual_review_rows"] = len(review_rows)
     summary["manual_review_group_counts"] = dict(
         Counter(row["review_group"] for row in review_rows)
     )
+    summary["preserved_existing_labeled_review"] = preserved_labeled_review
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
     write_csv(review_path, review_rows)
     return {"quality_summary": summary_path, "manual_review": review_path}

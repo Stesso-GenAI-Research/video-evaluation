@@ -9,7 +9,9 @@ from .config import PipelineConfig
 from .indexed_videos import prepare_indexed_videos
 from .month1 import run_month1
 from .month2 import run_month2
+from .provenance import build_manifest, write_manifest
 from .quality_review import build_quality_review
+from .retrieval.lexical import PRODUCTION_CANDIDATE_FIELDS
 from .verification import verify_structured_analysis
 
 
@@ -47,6 +49,30 @@ def run_indexed_video_analysis(
     summary = json.loads(month1["summary"].read_text(encoding="utf-8"))
     diagnostics = json.loads(month2["diagnostics"].read_text(encoding="utf-8"))
     quality_summary = json.loads(quality["quality_summary"].read_text(encoding="utf-8"))
+    index_manifest_path = output_dir / "index_manifest.json"
+    manifest = build_manifest(
+        command="build-index",
+        input_files=[indexed_videos_jsonl],
+        output_files=[
+            input_paths["clips"],
+            input_paths["rejected"],
+            month1["triples"],
+            month1["verbnet"],
+            month2["framenet"],
+        ],
+        parameters={
+            "index_schema_version": "indexed-video-segments-v2",
+            "scorer_version": "aligned-action-object-tool-v2",
+            "spacy_model": spacy_model,
+            "random_seed": random_seed,
+            "canonical_clip_count": profile["canonical_clip_count"],
+            "lexical_candidate_fields": PRODUCTION_CANDIDATE_FIELDS,
+            "structured_candidate_fields": ["title", "description", "goal"],
+            "taxonomy_used_for_ranking": False,
+        },
+    )
+    manifest["schema_version"] = "index-manifest.v2"
+    write_manifest(index_manifest_path, manifest)
     report_path = output_dir / "sample_analysis_report.json"
     report_path.write_text(
         json.dumps(
@@ -56,9 +82,14 @@ def run_indexed_video_analysis(
                 "month2_taxonomy": diagnostics,
                 "extraction_quality": quality_summary,
                 "verification_artifacts": sorted(verification),
+                "index_manifest": str(index_manifest_path),
+                "search_status": (
+                    "Ready: the structured index can return top-k clip matches "
+                    "for an action query."
+                ),
                 "evaluation_status": (
-                    "Month 3 was intentionally not run: this source has no steps, "
-                    "pairwise labels, or dense embeddings."
+                    "Top-k search is runnable now. Human-labeled comparative accuracy "
+                    "is a separate optional evaluation stage."
                 ),
             },
             indent=2,
@@ -69,6 +100,7 @@ def run_indexed_video_analysis(
     return {
         "report": report_path,
         "profile": input_paths["profile"],
+        "index_manifest": index_manifest_path,
         **month1,
         **month2,
         **quality,
