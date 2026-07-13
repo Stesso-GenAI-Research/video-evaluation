@@ -1,37 +1,108 @@
-# Local verification notes
+# Local verification record
 
-The automated pipeline was checked locally with Python 3.13. The machine's default Python was 3.14, which is outside the project's declared Python range, so the virtual environment was created with Python 3.13.
+Verified July 13, 2026 on macOS with Python 3.13.14.
 
-```bash
-/opt/homebrew/bin/python3.13 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
-.venv/bin/python -m spacy download en_core_web_sm
-.venv/bin/python -m nltk.downloader verbnet wordnet omw-1.4 framenet_v17
-
-.venv/bin/python -m compileall -q src tests
-.venv/bin/python -m pytest -q
-.venv/bin/ruff check src tests
-.venv/bin/action-semantics --help
-```
-
-The test suite passed locally with 17 tests. Compilation and Ruff also passed. The installed CLI includes working `search-indexed-clips` and `compare-indexed-clips` commands.
-
-The following command built the structured index from the real private sample:
+## Commands
 
 ```bash
-.venv/bin/action-semantics run-indexed-video-analysis \
-  --indexed-videos-jsonl indexed-videos-250.jsonl \
-  --output-dir /tmp/action-semantics-sample-results \
-  --min-taxonomy-support 2
+./scripts/run_local_pipeline.sh test
+./scripts/run_local_pipeline.sh build
+./scripts/run_local_pipeline.sh benchmark
 
-.venv/bin/action-semantics verify-structured-outputs \
-  --output-dir /tmp/action-semantics-sample-results
+./scripts/run_local_pipeline.sh search "remove old faucet" --method lexical
+./scripts/run_local_pipeline.sh search "remove old faucet" --method structured
+./scripts/run_local_pipeline.sh search "remove old faucet" --method hybrid
+./scripts/run_local_pipeline.sh search "paint wall" --method hybrid --max-per-video 1
+./scripts/run_local_pipeline.sh search "tighten screw with screwdriver" \
+  --method hybrid --max-per-video 1
 ```
 
-The run flattened 250 videos into 1,703 clip records. It generated 9,246 action triples from 1,023 unique action lemmas; 64.6% of triples had an extracted object and 7.6% had a dependency-linked tool. The taxonomy contains 670 recurring actions in 80 clusters. All required JSONL artifacts were nonempty and had their required fields.
+The test command runs compilation, pytest, Ruff, CLI help, and the Bash syntax
+check. The final result was:
 
-The July 2026 quality audit found actions in 1,335 clips (78.4%), record-level tool context for 87.1% of triples, VerbNet mappings for 70.9% of action lemmas, and FrameNet mappings for 69.2%. It also generated 60 deterministic manual-review rows across four error-analysis groups. Record-level tool context is reported separately from direct tool extraction because availability is not the same as correctness.
+```text
+51 passed
+All Ruff checks passed
+CLI help rendered successfully
+Bash syntax check passed
+```
 
-The query `remove old faucet` returned `Remove Faucet Handle` and `Remove Faucet Stem` as the first two results. The query `assess scum buildup` returned the exact source clip first, followed by two other `assess` actions. These are working retrieval examples, not human-reviewed accuracy measurements.
+## Ingest and index checks
 
-The functional comparison for `remove old faucet` compared a TF-IDF text top three with the action-semantic top three. The sets had no overlap. Mean structured score increased from about 0.47 for the text results to 0.77 for the action results, while the text baseline retained the higher mean lexical score, as expected.
+The real private sample was parsed without synthetic records:
+
+```text
+source videos:                    250
+raw nested clip rows:           1,703
+valid source rows:              1,700
+invalid rows quarantined:           3
+duplicate valid rows merged:       37
+canonical searchable segments: 1,663
+```
+
+The generated clip IDs are timestamp-based and unique. The three rejected rows
+are present in `input/rejected_clips.jsonl`. The root index manifest records the
+source SHA-256, generated file hashes, spaCy model, schema/scorer versions, and
+candidate field policies.
+
+The final extraction run produced 8,899 action records from 1,022 distinct
+action lemmas. Actions were found in 1,296 of 1,663 canonical clips (77.9%).
+Objects were found in 64.0% of action records and directly attached tools in
+7.4%. VerbNet covered 70.9% and FrameNet covered 69.3% of distinct actions.
+
+The 8,899 count was checked after removing duplicate parsing of provenance
+metadata. The final source-field counts are only:
+
+```text
+title:       1,255
+description: 6,862
+summary:       782
+```
+
+## Search checks
+
+`remove old faucet` returned `Remove Faucet Stem` and `Remove Faucet Handle` as
+the first two results for lexical, structured, and hybrid search.
+
+`paint wall` exercised the terse-imperative parser fallback and returned
+`Prepare and Paint Closet Walls` first.
+
+`tighten screw with screwdriver` returned `Tighten the Set Screws` first, with
+action, object, and tool signals all equal to 1.0.
+
+The nominal query `faucet removal` did not produce a false structured action.
+Hybrid search fell back to lexical results and included an explicit warning.
+
+These are functional smoke tests, not accuracy estimates.
+
+## Benchmark checks
+
+The benchmark kept one fixed pool of 582 candidates and excluded clip titles
+and parent-video text from every candidate representation. Forty-six terse
+queries were recovered by the imperative fallback. After removing ambiguous
+query names, exact phrase leaks, and remaining unparseable queries, all methods
+were evaluated on the same 463 queries.
+
+Whole-corpus results:
+
+```text
+method                 Hit@1   Hit@3   Hit@10   MRR
+lexical TF-IDF          .631    .855     .933   .749
+structured action       .261    .354     .475   .334
+50/50 hybrid            .505    .616     .680   .577
+```
+
+For hybrid minus lexical Hit@1, the video-cluster bootstrap estimate was
+-0.125 with a 95% interval of approximately [-0.184, -0.069]. The hybrid is
+therefore worse on this whole-corpus proxy task.
+
+In the within-video task, lexical and hybrid both reached Hit@1 = .726. The
+hybrid-minus-lexical estimate was 0.000 with a 95% interval of approximately
+[-0.051, 0.053]. This run detected no difference, but the interval still allows
+modest harm or benefit and is not an equivalence test.
+
+## Remaining manual check
+
+`quality/manual_review_sample.csv` contains 60 extraction examples. Its
+action/object/tool precision fields are intentionally blank. No parser
+precision claim should be made until a person labels that worksheet.

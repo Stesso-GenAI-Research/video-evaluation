@@ -17,6 +17,9 @@ from action_semantics.models import (
 from action_semantics.retrieval.embeddings import mean_dense_score
 
 
+STRUCTURED_SCORER_VERSION = "aligned-action-object-tool-material-v3"
+
+
 def jaccard(left: Iterable[str], right: Iterable[str]) -> float:
     left_set = {value for value in left if value}
     right_set = {value for value in right if value}
@@ -66,20 +69,29 @@ class StructuredWeights:
     manually evaluated.
     """
 
-    action: float = 0.55
-    object: float = 0.35
+    action: float = 0.50
+    object: float = 0.30
     tool: float = 0.10
+    material: float = 0.10
 
-    def normalized(self, *, has_object: bool = True, has_tool: bool = True) -> "StructuredWeights":
+    def normalized(
+        self,
+        *,
+        has_object: bool = True,
+        has_tool: bool = True,
+        has_material: bool = True,
+    ) -> "StructuredWeights":
         object_weight = self.object if has_object else 0.0
         tool_weight = self.tool if has_tool else 0.0
-        total = self.action + object_weight + tool_weight
+        material_weight = self.material if has_material else 0.0
+        total = self.action + object_weight + tool_weight + material_weight
         if total <= 0:
             raise ValueError("Structured weights must sum to a positive value.")
         return StructuredWeights(
             action=self.action / total,
             object=object_weight / total,
             tool=tool_weight / total,
+            material=material_weight / total,
         )
 
 
@@ -138,6 +150,11 @@ def _triple_pair_score(
     query_tools = query.tool_lemmas or query.context_tool_lemmas
     candidate_tools = candidate.tool_lemmas or candidate.context_tool_lemmas
     tool_score = _query_term_coverage(query_tools, candidate_tools)
+    query_materials = query.material_lemmas or query.context_material_lemmas
+    candidate_materials = (
+        candidate.material_lemmas or candidate.context_material_lemmas
+    )
+    material_score = _query_term_coverage(query_materials, candidate_materials)
     taxonomy = _taxonomy_pair_match(query, candidate, resources.taxonomy_lookup)
 
     # A positive/negative mismatch changes the meaning of an instruction.  It
@@ -149,11 +166,13 @@ def _triple_pair_score(
         weights = base_weights.normalized(
             has_object=bool(query.object_lemmas),
             has_tool=bool(query_tools),
+            has_material=bool(query_materials),
         )
         component_score = (
             weights.action * action
             + weights.object * object_score
             + weights.tool * tool_score
+            + weights.material * material_score
         )
         # Object/tool evidence is meaningful only when the actions are at
         # least compatible.  This prevents an unrelated action on the same
@@ -170,6 +189,7 @@ def _triple_pair_score(
         "taxonomy_match": float(taxonomy),
         "object_match": float(object_score),
         "tool_match": float(tool_score),
+        "material_match": float(material_score),
     }
 
 
@@ -190,6 +210,7 @@ def structured_score(
         "taxonomy_match",
         "object_match",
         "tool_match",
+        "material_match",
     )
     if not step_triples or not clip_triples:
         return {name: 0.0 for name in metric_names}
@@ -241,6 +262,7 @@ def score_step_clip(
         action_match=structured_parts["action_match"],
         object_match=structured_parts["object_match"],
         tool_match=structured_parts["tool_match"],
+        material_match=structured_parts["material_match"],
         taxonomy_match=structured_parts["taxonomy_match"],
         framenet_match=structured_parts["framenet_match"],
         verbnet_match=structured_parts["verbnet_match"],

@@ -14,10 +14,12 @@ from action_semantics.retrieval.lexical import (
     tfidf_scores,
 )
 from action_semantics.retrieval.scorers import (
+    STRUCTURED_SCORER_VERSION,
     StructuredResources,
     resources_from_files,
     structured_score,
 )
+from action_semantics.text import normalize_term
 
 
 QUERY_ID = "__search_query__"
@@ -36,6 +38,23 @@ def _query_triples(query_text: str, spacy_model: str) -> list[Any]:
         ],
         spacy_model,
     )
+
+
+def imperative_fallback_text(query_text: str, known_verbs: set[str]) -> str | None:
+    """Rewrite terse ``verb object`` text only when the first word is a known verb."""
+    words = normalize_term(query_text).split()
+    if len(words) < 2 or words[0] not in known_verbs:
+        return None
+    return f"{words[0]} the {' '.join(words[1:])}"
+
+
+def _imperative_fallback_triples(
+    query_text: str,
+    spacy_model: str,
+    known_verbs: set[str],
+) -> list[Any]:
+    rewritten = imperative_fallback_text(query_text, known_verbs)
+    return _query_triples(rewritten, spacy_model) if rewritten else []
 
 
 def _result_metadata(clip: Any) -> dict[str, Any]:
@@ -94,21 +113,34 @@ def rank_indexed_clips(
     lexical = tfidf_scores(query_text, clips)
     query_triples = _query_triples(query_text, spacy_model)
     warnings: list[str] = []
-    if not query_triples:
-        warning = (
-            "The action parser found no verb in the query. "
-            "Lexical ranking was used instead."
+    base: StructuredResources | None = None
+    if not query_triples and method in {"structured", "hybrid"}:
+        base = resources_from_files(month1_dir, month2_dir)
+        query_triples = _imperative_fallback_triples(
+            query_text,
+            spacy_model,
+            {row.action_lemma for row in base.verbnet if row.has_mapping},
         )
+        if query_triples:
+            warnings.append(
+                "The parser treated the terse query as a noun phrase, so search retried "
+                "it as an imperative instruction."
+            )
+    if not query_triples:
         if method == "structured":
             raise ValueError(
                 "Structured search could not identify an action. Try an imperative query "
                 "such as 'remove the old faucet', or use lexical/hybrid search."
             )
-        warnings.append(warning)
+        if method == "hybrid":
+            warnings.append(
+                "The action parser found no verb in the query. "
+                "Lexical ranking was used instead."
+            )
 
     structured: dict[str, dict[str, float]] = {}
-    if query_triples:
-        base = resources_from_files(month1_dir, month2_dir)
+    if query_triples and method in {"structured", "hybrid"}:
+        base = base or resources_from_files(month1_dir, month2_dir)
         resources = StructuredResources(
             triples=[*base.triples, *query_triples],
             verbnet=base.verbnet,
@@ -126,6 +158,7 @@ def rank_indexed_clips(
         "exact_action_match": 0.0,
         "object_match": 0.0,
         "tool_match": 0.0,
+        "material_match": 0.0,
         "verbnet_match": 0.0,
         "framenet_match": 0.0,
         "taxonomy_match": 0.0,
@@ -154,6 +187,7 @@ def rank_indexed_clips(
                     "exact_action": parts["exact_action_match"],
                     "object": parts["object_match"],
                     "tool": parts["tool_match"],
+                    "material": parts["material_match"],
                     "verbnet": parts["verbnet_match"],
                     "framenet": parts["framenet_match"],
                     # Diagnostic only. It is not part of structured_score.
@@ -205,15 +239,21 @@ def rank_indexed_clips(
                 }
             ),
         },
-        "method": method if query_triples else "lexical_fallback",
+        "method": (
+            "lexical_fallback"
+            if method == "hybrid" and not query_triples
+            else method
+        ),
         "hybrid_alpha_lexical": hybrid_alpha if method == "hybrid" else None,
         "requested_top_k": top_k,
         "returned_count": len(selected),
         "max_per_video": max_per_video,
         "index": {
             "clips_sha256": sha256_file(clips_jsonl),
+            "canonical_schema": "indexed-video-segments-v2",
             "canonical_clip_count": len(clips),
             "production_lexical_fields": PRODUCTION_CANDIDATE_FIELDS,
+            "structured_scorer": STRUCTURED_SCORER_VERSION,
             "taxonomy_used_for_ranking": False,
         },
         "results": selected,

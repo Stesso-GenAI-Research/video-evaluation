@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from action_semantics.io_utils import read_clips
+from action_semantics.retrieval.provenance import build_retrieval_provenance
 from action_semantics.retrieval.search import rank_indexed_clips
 
 
@@ -87,18 +88,41 @@ def compare_result_sets(
         reference_label = "provided_original"
         reference_source = "explicit_original_clip_ids"
     else:
-        reference_ids = [row["clip_id"] for row in lexical_search["results"][:top_k]]
+        reference_ids = [
+            row["clip_id"]
+            for row in lexical_search["results"]
+            if row["score"] > 0.0
+        ][:top_k]
         reference_label = "lexical_baseline"
         reference_source = "generated_tfidf_baseline"
 
     challenger_ids = [
-        row["clip_id"] for row in challenger_search["results"][:top_k]
-    ]
-    # The challenger rows contain every score decomposition needed to inspect
-    # both sets under the same field/scorer policy.
-    all_scored_rows = challenger_search["results"]
-    reference_rows = _rerank(all_scored_rows, reference_ids)
-    challenger_rows = _rerank(all_scored_rows, challenger_ids)
+        row["clip_id"]
+        for row in challenger_search["results"]
+        if row["score"] > 0.0
+    ][:top_k]
+    provenance = build_retrieval_provenance(
+        clips_jsonl=clips_jsonl,
+        month1_dir=month1_dir,
+        month2_dir=month2_dir,
+        spacy_model=spacy_model,
+    )
+    challenger_rows = _rerank(challenger_search["results"], challenger_ids)
+    for row in challenger_rows:
+        row["ranking_method"] = challenger_method
+    if original_clip_ids is None:
+        # Preserve the score from the method that actually selected the
+        # baseline ranking rather than displaying the challenger's score.
+        reference_rows = _rerank(lexical_search["results"], reference_ids)
+        for row in reference_rows:
+            row["ranking_method"] = "lexical"
+    else:
+        reference_rows = _rerank(challenger_search["results"], reference_ids)
+        for row in reference_rows:
+            row["ranking_method"] = "provided_original"
+            row["challenger_diagnostic_score"] = row["score"]
+            row["score"] = None
+            row["score_note"] = "The supplied original ranking did not include a score."
     overlap = [clip_id for clip_id in reference_ids if clip_id in set(challenger_ids)]
     reference_ranks = {clip_id: rank for rank, clip_id in enumerate(reference_ids, start=1)}
     challenger_ranks = {
@@ -108,6 +132,14 @@ def compare_result_sets(
         "schema_version": "comparison.v2",
         "query": query_text,
         "top_k": top_k,
+        "configuration": {
+            "challenger_method": challenger_method,
+            "hybrid_alpha_lexical": (
+                hybrid_alpha if challenger_method == "hybrid" else None
+            ),
+            "spacy_model": spacy_model,
+        },
+        "provenance": provenance,
         "reference": {
             "label": reference_label,
             "source": reference_source,
@@ -139,7 +171,20 @@ def compare_result_sets(
             "This report shows how the rankings differ. It does not prove which set is "
             "better; that requires the aligned benchmark or blinded human judgments."
         ),
-        "warnings": [*lexical_search["warnings"], *challenger_search["warnings"]],
+        "warnings": [
+            *lexical_search["warnings"],
+            *challenger_search["warnings"],
+            *(
+                [f"The reference returned only {len(reference_ids)} positive-score results."]
+                if len(reference_ids) < top_k
+                else []
+            ),
+            *(
+                [f"The challenger returned only {len(challenger_ids)} positive-score results."]
+                if len(challenger_ids) < top_k
+                else []
+            ),
+        ],
     }
 
 

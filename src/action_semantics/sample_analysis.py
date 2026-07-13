@@ -12,6 +12,7 @@ from .month2 import run_month2
 from .provenance import build_manifest, write_manifest
 from .quality_review import build_quality_review
 from .retrieval.lexical import PRODUCTION_CANDIDATE_FIELDS
+from .retrieval.scorers import STRUCTURED_SCORER_VERSION
 from .verification import verify_structured_analysis
 
 
@@ -62,12 +63,18 @@ def run_indexed_video_analysis(
         ],
         parameters={
             "index_schema_version": "indexed-video-segments-v2",
-            "scorer_version": "aligned-action-object-tool-v2",
+            "scorer_version": STRUCTURED_SCORER_VERSION,
             "spacy_model": spacy_model,
             "random_seed": random_seed,
             "canonical_clip_count": profile["canonical_clip_count"],
             "lexical_candidate_fields": PRODUCTION_CANDIDATE_FIELDS,
-            "structured_candidate_fields": ["title", "description", "goal"],
+            "structured_candidate_fields": [
+                "title",
+                "description",
+                "goal",
+                "associated tool inventory",
+                "associated supply inventory",
+            ],
             "taxonomy_used_for_ranking": False,
         },
     )

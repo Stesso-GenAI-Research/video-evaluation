@@ -153,6 +153,7 @@ class ScoreRow(BaseModel):
     action_match: float | None = None
     object_match: float | None = None
     tool_match: float | None = None
+    material_match: float | None = None
     taxonomy_match: float | None = None
     framenet_match: float | None = None
     verbnet_match: float | None = None

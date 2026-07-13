@@ -35,12 +35,19 @@ def production_candidate_text(clip: ClipRecord) -> str:
     if not isinstance(video_metadata, dict):
         video_metadata = {}
     title = clip.title or ""
-    tools = clip_metadata.get("tools", [])
-    supplies = clip_metadata.get("supplies", [])
-    inventory = [
-        *(tools if isinstance(tools, list) else [tools]),
-        *(supplies if isinstance(supplies, list) else [supplies]),
-    ]
+    inventory: list[object] = []
+    for value_key, item_key in (("tools", "tool_items"), ("supplies", "supply_items")):
+        values = clip_metadata.get(value_key, [])
+        inventory.extend(values if isinstance(values, list) else [values])
+        items = clip_metadata.get(item_key, [])
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                inventory.append(item.get("name"))
+                alternatives = item.get("alternatives", [])
+                if isinstance(alternatives, list):
+                    inventory.extend(alternatives)
     category = video_metadata.get("category")
     category_name = category.get("name") if isinstance(category, dict) else category
     return " ".join(

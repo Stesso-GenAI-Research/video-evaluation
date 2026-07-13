@@ -5,7 +5,11 @@ from action_semantics.models import (
     VerbNetMapping,
 )
 from action_semantics.io_utils import write_jsonl
-from action_semantics.retrieval.scorers import StructuredResources, structured_score
+from action_semantics.retrieval.scorers import (
+    STRUCTURED_SCORER_VERSION,
+    StructuredResources,
+    structured_score,
+)
 from action_semantics.retrieval.search import QUERY_ID, rank_indexed_clips
 
 
@@ -16,6 +20,7 @@ def _triple(
     obj: str,
     *,
     tool: str | None = None,
+    material: str | None = None,
     negated: bool = False,
 ) -> ActionTriple:
     return ActionTriple(
@@ -27,6 +32,7 @@ def _triple(
         action_text=action,
         object_lemmas=[obj],
         tool_lemmas=[tool] if tool else [],
+        material_lemmas=[material] if material else [],
         negated=negated,
         sentence=f"{action} the {obj}",
         extraction_method="test",
@@ -114,6 +120,21 @@ def test_taxonomy_is_diagnostic_and_cannot_make_unrelated_actions_match():
     assert result["structured_score"] == 0.0
 
 
+def test_material_or_supply_evidence_is_part_of_an_aligned_match():
+    triples = [
+        _triple("step", "query", "apply", "wall", material="primer"),
+        _triple("clip", "matching", "apply", "wall", material="primer"),
+        _triple("clip", "wrong", "apply", "wall", material="paint"),
+    ]
+    resources = StructuredResources(triples=triples, verbnet=[], framenet=[], taxonomy=[])
+
+    matching = structured_score("query", "matching", resources)
+    wrong = structured_score("query", "wrong", resources)
+
+    assert matching["material_match"] == 1.0
+    assert matching["structured_score"] > wrong["structured_score"]
+
+
 def test_public_search_ranks_results_and_applies_video_diversity(tmp_path, monkeypatch):
     clips_path = tmp_path / "clips.jsonl"
     write_jsonl(
@@ -161,6 +182,7 @@ def test_public_search_ranks_results_and_applies_video_diversity(tmp_path, monke
     assert [row["clip_id"] for row in result["results"]] == ["best", "other-video"]
     assert [row["rank"] for row in result["results"]] == [1, 2]
     assert result["index"]["taxonomy_used_for_ranking"] is False
+    assert result["index"]["structured_scorer"] == STRUCTURED_SCORER_VERSION
 
 
 def test_hybrid_search_falls_back_to_lexical_when_query_parse_fails(
@@ -169,6 +191,10 @@ def test_hybrid_search_falls_back_to_lexical_when_query_parse_fails(
     clips_path = tmp_path / "clips.jsonl"
     write_jsonl(clips_path, [{"clip_id": "clip-1", "title": "Faucet removal"}])
     monkeypatch.setattr("action_semantics.retrieval.search._query_triples", lambda *_: [])
+    monkeypatch.setattr(
+        "action_semantics.retrieval.search.resources_from_files",
+        lambda *_: StructuredResources(triples=[], verbnet=[], framenet=[], taxonomy=[]),
+    )
     monkeypatch.setattr(
         "action_semantics.retrieval.search.tfidf_scores", lambda *_: {"clip-1": 0.8}
     )
@@ -184,3 +210,41 @@ def test_hybrid_search_falls_back_to_lexical_when_query_parse_fails(
     assert result["method"] == "lexical_fallback"
     assert result["results"][0]["clip_id"] == "clip-1"
     assert "no verb" in result["warnings"][0]
+
+
+def test_search_retries_known_verb_as_terse_imperative(tmp_path, monkeypatch):
+    clips_path = tmp_path / "clips.jsonl"
+    write_jsonl(clips_path, [{"clip_id": "paint", "title": "Paint closet wall"}])
+    query = _triple("step", QUERY_ID, "paint", "wall")
+    resources = StructuredResources(
+        triples=[_triple("clip", "paint", "paint", "wall")],
+        verbnet=[
+            VerbNetMapping(
+                action_lemma="paint", verbnet_classes=["coloring-24"], has_mapping=True
+            )
+        ],
+        framenet=[],
+        taxonomy=[],
+    )
+    monkeypatch.setattr(
+        "action_semantics.retrieval.search._query_triples",
+        lambda text, _: [query] if text == "paint the wall" else [],
+    )
+    monkeypatch.setattr(
+        "action_semantics.retrieval.search.resources_from_files", lambda *_: resources
+    )
+    monkeypatch.setattr(
+        "action_semantics.retrieval.search.tfidf_scores", lambda *_: {"paint": 0.5}
+    )
+
+    result = rank_indexed_clips(
+        query_text="paint wall",
+        clips_jsonl=clips_path,
+        month1_dir=tmp_path,
+        month2_dir=tmp_path,
+        spacy_model="unused",
+    )
+
+    assert result["method"] == "hybrid"
+    assert result["query"]["actions"] == ["paint"]
+    assert "imperative instruction" in result["warnings"][0]

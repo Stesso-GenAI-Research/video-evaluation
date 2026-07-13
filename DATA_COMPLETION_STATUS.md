@@ -1,34 +1,86 @@
-# Data completion status
+# Data and experiment status
 
-This repository now has a working structured search path for `indexed-videos-250.jsonl`, a private sample of 250 indexed videos with 1,703 nested clip records. Each nested clip is an instructional step with a name, metadata, and timestamps, so the file is enough to build an index and return top-k action-semantic matches.
+Updated July 13, 2026.
 
-Dense embeddings and pairwise judgments are still useful for later comparative evaluation, but they are not required for the immediate structured-search deliverable.
+## Ready now
 
-What is complete in this repository:
+`indexed-videos-250.jsonl` is sufficient for building and exercising the search
+system. The automated ingest audit found:
 
-- The month 1 extraction code is present.
-- The month 2 FrameNet, SRL-style extraction, and taxonomy code is present.
-- The month 3 scoring and pairwise evaluation code is present.
-- The data contracts and SQL export guide are included.
-- The repository can be installed and tested locally.
-- The new `prepare-indexed-videos` command flattens the nested sample into stable clip records and writes a data-availability profile.
-- The new `run-indexed-video-analysis` command builds and verifies the structured index from the real sample.
-- The real sample run completed locally. It produced 9,246 action triples, 1,023 distinct action lemmas, and a 670-action, 80-cluster first-pass taxonomy.
-- The pipeline now measures extraction quality automatically. Actions were found in 1,335 of 1,703 clips (78.4%), VerbNet covered 70.9% of action lemmas, and FrameNet covered 69.2%.
-- A deterministic 60-row manual-review worksheet is generated at `quality/manual_review_sample.csv`.
-- Record-level tool metadata is preserved separately from directly parsed tools and can be used as a fallback in structured scoring.
-- The `search-indexed-clips` command parses an action query, scores all 1,703 clips, and returns the top matches.
-- The Bash script exposes this as `./scripts/run_local_pipeline.sh search "query text"` and saves the result as JSON.
-- The `compare-indexed-clips` command compares supplied original matches, or a TF-IDF baseline, with the new action-semantic top three.
-- The comparison reports overlap plus text, action, object, tool, VerbNet, FrameNet, taxonomy, and total structured scores for both sets.
+- 250 source videos and 1,703 raw clip annotations
+- 3 invalid intervals with `end <= start`
+- 1,700 valid source rows
+- 36 duplicate timestamp groups containing 37 redundant rows
+- 1,663 canonical playable segments
+- 582 canonical segments with a description or goal for the held-out benchmark
+- 1,241 canonical segments with parsed tool metadata
 
-What should happen next:
+The parser retains all parent and clip fields, raw annotation variants,
+alternate names, inventory alternatives/purposes, and source provenance. It
+writes invalid rows separately instead of repairing them silently.
 
-- Run and inspect realistic top-three searches.
-- Review a stratified sample of the extraction output manually before making accuracy claims.
-- Label the generated review worksheet, summarize the error types, and report human-reviewed action/object/tool precision.
-- Build an aligned-clip benchmark from the nested records.
-- Request a larger export in the same IndexedVideo format.
-- Add dense or lexical baselines and compare them with structured and hybrid scoring.
+The repository can now produce:
 
-The current file is sufficient for retrieval and qualitative top-k inspection. Human labels would strengthen a later effectiveness study, but their absence no longer blocks the working search system.
+- a canonical searchable corpus;
+- a versioned/hash-recorded feature index;
+- lexical, structured, and hybrid top-k search;
+- a neutral one-query ranking diff;
+- a validated batch comparison against supplied original rankings;
+- a blinded relevance-review CSV;
+- a scorer for completed blind reviews with Precision@k and paired intervals;
+- a direct-title and exact-phrase controlled benchmark with confidence intervals.
+
+## Current measured result
+
+The held-out benchmark uses 582 candidates and 463 eligible queries. Candidate
+titles and parent-video text are excluded.
+
+| Method | Hit@1 | Hit@3 | Hit@10 | MRR |
+|---|---:|---:|---:|---:|
+| Lexical TF-IDF | 63.1% | 85.5% | 93.3% | 0.749 |
+| Structured action | 26.1% | 35.4% | 47.5% | 0.334 |
+| 50/50 hybrid | 50.5% | 61.6% | 68.0% | 0.577 |
+
+Structured action matching is not yet competitive for whole-corpus retrieval.
+Within a single source video, lexical and hybrid Hit@1 are both 72.6%, and the
+paired confidence interval includes zero. This is a useful direction to study,
+but not evidence that hybrid search is better.
+
+## Data that is genuinely missing
+
+The JSONL does not contain:
+
+- project query/step IDs;
+- the existing system’s original top-three results;
+- retrieval ranks or scores;
+- human relevance judgments;
+- dense embeddings, captions, or transcripts.
+
+Those fields are not needed to run search or the development benchmark. They
+are needed to answer the stronger question, “Are the new top three actually
+better than the old top three?”
+
+The next supervisor export should contain one row per query with:
+
+```json
+{"step_id":"step-1","query":"remove old faucet","original_matches":[{"clip_id":"clip-1","rank":1},{"clip_id":"clip-2","rank":2},{"clip_id":"clip-3","rank":3}]}
+```
+
+If canonical IDs are unavailable, video IDs plus exact start/end timestamps are
+enough to map results. A useful first human study would include 50–100 queries,
+stratified across categories, with the old top three preserved in rank order.
+
+## Next work
+
+1. Obtain and run the batch of real original rankings.
+2. Judge the pooled old/new clips using the generated blind worksheet.
+3. Report Precision@3, action/object/tool agreement, wins/ties/losses, and paired
+   confidence intervals.
+4. Analyze the 106 narrative queries for which the current action parser still
+   finds no action.
+5. Tune parser/scorer changes on development videos only.
+6. Freeze the configuration and evaluate on held-out videos.
+7. Run the unchanged pipeline on the larger IndexedVideo export.
+
+The current sample is no longer a blocker. The main missing evidence is an old
+ranking plus human relevance judgments, not more extraction code.

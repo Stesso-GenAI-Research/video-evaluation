@@ -154,6 +154,8 @@ def test_duplicate_segments_are_merged_and_invalid_intervals_are_rejected(tmp_pa
     assert metadata["source_clip_indices"] == [0, 1, 2]
     assert metadata["tools"] == ["Screwdriver"]
     assert metadata["supplies"] == ["Wall anchors"]
+    assert metadata["tool_items"][1]["purpose"] == "Tightening screws"
+    assert metadata["supply_items"][0]["name"] == "Wall anchors"
     assert len(metadata["source_variants"]) == 3
     assert profile["raw_clip_count"] == 4
     assert profile["valid_source_clip_count"] == 3

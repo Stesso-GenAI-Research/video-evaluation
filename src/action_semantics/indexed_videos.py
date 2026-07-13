@@ -114,7 +114,9 @@ def _parse_inventory_items(value: Any) -> list[ParsedInventoryItem]:
         primary = re.split(
             r"\s+alternatives:|\s+used for", raw, maxsplit=1, flags=re.I
         )[0]
-        primary = re.sub(r"\s+(unknown|not specified)$", "", primary, flags=re.I)
+        primary = re.sub(
+            r"\s+(unknown|not specified|n/?a)$", "", primary, flags=re.I
+        )
         alternatives_match = re.search(
             r"\s+alternatives:\s*(.*?)(?=\s+used for\s+|$)", raw, flags=re.I
         )
@@ -330,6 +332,7 @@ def _canonicalize_indexed_videos(source_path: Path) -> _CanonicalizationResult:
     category_counts: Counter[str] = Counter()
     rejection_reasons: Counter[str] = Counter()
     raw_coverage: Counter[str] = Counter()
+    inventory_audit: Counter[str] = Counter()
     video_ids: list[int] = []
     raw_clip_count = 0
     declared_count_mismatches = 0
@@ -348,6 +351,17 @@ def _canonicalize_indexed_videos(source_path: Path) -> _CanonicalizationResult:
             raw_coverage["clip_goal"] += bool(normalize_text(clip.goal))
             raw_coverage["clip_tools"] += bool(_as_string_list(clip.tools))
             raw_coverage["clip_supplies"] += bool(_as_string_list(clip.supplies))
+            for field_name, value in (("tools", clip.tools), ("supplies", clip.supplies)):
+                text = normalize_text(value)
+                parsed_items = _parse_inventory_items(value)
+                inventory_audit[f"parsed_{field_name}_items"] += len(parsed_items)
+                inventory_audit[f"{field_name}_values_with_alternatives"] += (
+                    "alternatives:" in text.casefold()
+                )
+                inventory_audit[f"{field_name}_values_with_purpose"] += (
+                    " used for " in text.casefold()
+                )
+                inventory_audit[f"{field_name}_values_over_200_characters"] += len(text) > 200
             occurrence = _ClipOccurrence(video, clip, row_number, clip_index)
             if clip.end <= clip.start:
                 reason = "non_positive_duration"
@@ -419,6 +433,7 @@ def _canonicalize_indexed_videos(source_path: Path) -> _CanonicalizationResult:
         "declared_clip_count_mismatch_count": declared_count_mismatches,
         "duplicate_video_id_count": duplicate_video_id_count,
         "category_counts": dict(sorted(category_counts.items())),
+        "inventory_audit": dict(sorted(inventory_audit.items())),
         "raw_coverage": {
             key: raw_coverage[key] / raw_clip_count
             for key in ("clip_description", "clip_goal", "clip_tools", "clip_supplies")

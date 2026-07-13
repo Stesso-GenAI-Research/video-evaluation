@@ -1,4 +1,4 @@
-"""Leakage-controlled retrieval benchmark for the IndexedVideo sample.
+"""Direct-title and exact-phrase controlled benchmark for the IndexedVideo sample.
 
 The nested clip name is treated as a short step query.  Its aligned clip is
 the known target, but the candidate representation deliberately excludes that
@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
+from dataclasses import dataclass
+from math import isclose
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -22,20 +24,22 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from action_semantics.extraction.triples import extract_triples
-from action_semantics.io_utils import read_clips, write_csv
+from action_semantics.io_utils import read_clips, sha256_file, write_csv
 from action_semantics.models import ActionTriple, ClipRecord, TextSegment
 from action_semantics.retrieval.scorers import (
+    STRUCTURED_SCORER_VERSION,
     StructuredResources,
     resources_from_files,
     structured_score,
 )
+from action_semantics.retrieval.search import imperative_fallback_text
 from action_semantics.text import normalize_term
 
 
-BENCHMARK_NAME = "aligned_clip_leave_name_out_v1"
+BENCHMARK_NAME = "aligned_clip_leave_name_out_v2"
 BOOTSTRAP_SEED = 1729
 BOOTSTRAP_ITERATIONS = 2000
-METHODS = ("lexical_tfidf", "structured_action", "hybrid_equal")
+METHODS = ("lexical_tfidf", "structured_action", "hybrid")
 PRIMARY_METRICS = ("hit_at_1", "hit_at_3", "hit_at_10", "mean_reciprocal_rank")
 
 
@@ -44,9 +48,22 @@ def _metadata_inventory(clip: ClipRecord, key: str) -> list[str]:
     if not isinstance(metadata, dict):
         return []
     values = metadata.get(key, [])
-    if not isinstance(values, list):
-        return []
-    return [value.strip() for value in values if isinstance(value, str) and value.strip()]
+    output = [
+        value.strip()
+        for value in values if isinstance(value, str) and value.strip()
+    ] if isinstance(values, list) else []
+    item_key = "tool_items" if key == "tools" else "supply_items"
+    items = metadata.get(item_key, [])
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if isinstance(item.get("name"), str):
+                output.append(item["name"])
+            alternatives = item.get("alternatives", [])
+            if isinstance(alternatives, list):
+                output.extend(value for value in alternatives if isinstance(value, str))
+    return list(dict.fromkeys(output))
 
 
 def _candidate_text(clip: ClipRecord) -> str:
@@ -133,47 +150,133 @@ def _select_evaluation_queries(
     return eligible, report
 
 
-def _rank(scores: dict[str, float], relevant_id: str) -> tuple[int, str]:
+@dataclass(frozen=True)
+class RankOutcome:
+    """The target's positive-score rank interval.
+
+    A score of zero means that a method found no evidence for the target, so
+    it receives no rank.  Positive score ties are represented as an interval;
+    aggregate metrics average over every possible position in that interval.
+    ``deterministic_rank`` and ``top_clip_id`` exist only to make row-level
+    debugging reproducible.
+    """
+
+    deterministic_rank: int | None
+    best_rank: int | None
+    worst_rank: int | None
+    top_clip_id: str | None
+    relevant_score: float
+    positive_candidate_count: int
+    tie_size: int
+
+
+def _rank(scores: dict[str, float], relevant_id: str) -> RankOutcome:
     if relevant_id not in scores:
         raise ValueError(f"Relevant clip is absent from the candidate scores: {relevant_id}")
     if not scores:
         raise ValueError("Cannot rank an empty candidate set.")
-    ordered = sorted(scores, key=lambda clip_id: (-scores[clip_id], clip_id))
-    return ordered.index(relevant_id) + 1, ordered[0]
+    positive_ids = [clip_id for clip_id, score in scores.items() if score > 0.0]
+    ordered = sorted(positive_ids, key=lambda clip_id: (-scores[clip_id], clip_id))
+    top_clip_id = ordered[0] if ordered else None
+    relevant_score = scores[relevant_id]
+    if relevant_score <= 0.0:
+        return RankOutcome(
+            deterministic_rank=None,
+            best_rank=None,
+            worst_rank=None,
+            top_clip_id=top_clip_id,
+            relevant_score=relevant_score,
+            positive_candidate_count=len(positive_ids),
+            tie_size=0,
+        )
+
+    tied_ids = [
+        clip_id
+        for clip_id in positive_ids
+        if isclose(scores[clip_id], relevant_score, rel_tol=1e-12, abs_tol=1e-12)
+    ]
+    greater_count = sum(
+        scores[clip_id] > relevant_score
+        and not isclose(scores[clip_id], relevant_score, rel_tol=1e-12, abs_tol=1e-12)
+        for clip_id in positive_ids
+    )
+    return RankOutcome(
+        deterministic_rank=ordered.index(relevant_id) + 1,
+        best_rank=greater_count + 1,
+        worst_rank=greater_count + len(tied_ids),
+        top_clip_id=top_clip_id,
+        relevant_score=relevant_score,
+        positive_candidate_count=len(positive_ids),
+        tie_size=len(tied_ids),
+    )
 
 
-def _metrics(ranks: list[int]) -> dict[str, Any]:
-    if not ranks:
+def _expected_hit(outcome: RankOutcome, cutoff: int) -> float:
+    if outcome.best_rank is None or outcome.worst_rank is None:
+        return 0.0
+    positions_inside_cutoff = max(
+        0, min(cutoff, outcome.worst_rank) - outcome.best_rank + 1
+    )
+    return positions_inside_cutoff / outcome.tie_size
+
+
+def _expected_reciprocal_rank(outcome: RankOutcome) -> float:
+    if outcome.best_rank is None or outcome.worst_rank is None:
+        return 0.0
+    return sum(
+        1.0 / rank for rank in range(outcome.best_rank, outcome.worst_rank + 1)
+    ) / outcome.tie_size
+
+
+def _metrics(outcomes: list[RankOutcome]) -> dict[str, Any]:
+    if not outcomes:
         return {
             "query_count": 0,
+            "target_positive_score_count": 0,
+            "target_positive_score_rate": None,
+            "positive_target_tie_count": 0,
+            "positive_target_tie_rate": None,
             "hit_at_1": None,
             "hit_at_3": None,
             "hit_at_10": None,
             "mean_reciprocal_rank": None,
-            "median_rank": None,
+            "median_expected_rank_among_positive_targets": None,
         }
-    if any(rank < 1 for rank in ranks):
-        raise ValueError("Ranks must be positive integers.")
+    positive = [outcome for outcome in outcomes if outcome.best_rank is not None]
+    tied = [outcome for outcome in positive if outcome.tie_size > 1]
+    expected_ranks = [
+        (outcome.best_rank + outcome.worst_rank) / 2
+        for outcome in positive
+        if outcome.best_rank is not None and outcome.worst_rank is not None
+    ]
     return {
-        "query_count": len(ranks),
-        "hit_at_1": sum(rank <= 1 for rank in ranks) / len(ranks),
-        "hit_at_3": sum(rank <= 3 for rank in ranks) / len(ranks),
-        "hit_at_10": sum(rank <= 10 for rank in ranks) / len(ranks),
-        "mean_reciprocal_rank": float(np.mean([1.0 / rank for rank in ranks])),
-        "median_rank": float(median(ranks)),
+        "query_count": len(outcomes),
+        "target_positive_score_count": len(positive),
+        "target_positive_score_rate": len(positive) / len(outcomes),
+        "positive_target_tie_count": len(tied),
+        "positive_target_tie_rate": len(tied) / len(outcomes),
+        "hit_at_1": float(np.mean([_expected_hit(row, 1) for row in outcomes])),
+        "hit_at_3": float(np.mean([_expected_hit(row, 3) for row in outcomes])),
+        "hit_at_10": float(np.mean([_expected_hit(row, 10) for row in outcomes])),
+        "mean_reciprocal_rank": float(
+            np.mean([_expected_reciprocal_rank(row) for row in outcomes])
+        ),
+        "median_expected_rank_among_positive_targets": (
+            float(median(expected_ranks)) if expected_ranks else None
+        ),
     }
 
 
-def _metric_values(ranks: list[int]) -> dict[str, float]:
-    metrics = _metrics(ranks)
+def _metric_values(outcomes: list[RankOutcome]) -> dict[str, float]:
+    metrics = _metrics(outcomes)
     return {name: float(metrics[name]) for name in PRIMARY_METRICS}
 
 
 def _paired_cluster_bootstrap_delta_cis(
     *,
     video_ids: list[str],
-    baseline_ranks: list[int],
-    challenger_ranks: list[int],
+    baseline_ranks: list[RankOutcome],
+    challenger_ranks: list[RankOutcome],
     iterations: int = BOOTSTRAP_ITERATIONS,
     seed: int = BOOTSTRAP_SEED,
 ) -> dict[str, Any]:
@@ -228,11 +331,18 @@ def _paired_cluster_bootstrap_delta_cis(
 
 def _task_summary(
     *,
-    ranks: dict[str, list[int]],
+    ranks: dict[str, list[RankOutcome]],
     video_ids: list[str],
 ) -> dict[str, Any]:
     return {
         "query_count": len(video_ids),
+        "score_and_tie_policy": {
+            "zero_score": "no retrieved rank; contributes zero to hits and reciprocal rank",
+            "positive_score_ties": (
+                "metrics use the expected value under a uniform ordering of tied clips"
+            ),
+            "row_level_display_order": "descending score, then clip_id",
+        },
         "methods": {method: _metrics(ranks[method]) for method in METHODS},
         "paired_cluster_bootstrap_95": {
             "structured_action_minus_lexical_tfidf": _paired_cluster_bootstrap_delta_cis(
@@ -240,10 +350,10 @@ def _task_summary(
                 baseline_ranks=ranks["lexical_tfidf"],
                 challenger_ranks=ranks["structured_action"],
             ),
-            "hybrid_equal_minus_lexical_tfidf": _paired_cluster_bootstrap_delta_cis(
+            "hybrid_minus_lexical_tfidf": _paired_cluster_bootstrap_delta_cis(
                 video_ids=video_ids,
                 baseline_ranks=ranks["lexical_tfidf"],
-                challenger_ranks=ranks["hybrid_equal"],
+                challenger_ranks=ranks["hybrid"],
             ),
         },
     }
@@ -292,9 +402,43 @@ def run_field_heldout_benchmark(
     query_triples_by_id: dict[str, list[ActionTriple]] = defaultdict(list)
     for row in query_triples:
         query_triples_by_id[row.record_id].append(row)
+    initially_parsed_ids = set(query_triples_by_id)
+    # The fallback vocabulary is derived from candidate-side narrative text,
+    # not from held-out clip titles. VerbNet merely confirms that the first
+    # word can function as a verb. Requiring support in another candidate
+    # prevents a target's own paired description from deciding its eligibility.
+    candidate_action_support: dict[str, set[str]] = defaultdict(set)
+    for row in candidate_triples:
+        candidate_action_support[row.action_lemma].add(row.record_id)
+    known_verbs = {
+        row.action_lemma
+        for row in base.verbnet
+        if row.has_mapping and row.action_lemma in candidate_action_support
+    }
+    fallback_segments = [
+        TextSegment(
+            record_type="step",
+            record_id=clip.clip_id,
+            source_field="query",
+            text=rewritten,
+        )
+        for clip in candidates
+        if clip.clip_id not in query_triples_by_id
+        if (rewritten := imperative_fallback_text(clip.title or "", known_verbs))
+        if candidate_action_support[rewritten.split()[0]] - {clip.clip_id}
+    ]
+    for row in extract_triples(fallback_segments, spacy_model):
+        query_triples_by_id[row.record_id].append(row)
     queries, eligibility = _select_evaluation_queries(candidates, query_triples_by_id)
+    fallback_parsed_ids = set(query_triples_by_id) - initially_parsed_ids
+    eligibility["imperative_fallback_query_count"] = len(fallback_parsed_ids)
+    eligibility["eligible_imperative_fallback_query_count"] = len(
+        fallback_parsed_ids & {clip.clip_id for clip in queries}
+    )
     if not queries:
-        raise ValueError("No leakage-free candidate clip also had a parseable title action.")
+        raise ValueError(
+            "No direct-leakage-controlled candidate also had a parseable title action."
+        )
 
     documents = [_candidate_text(clip) for clip in candidates]
     vectorizer = TfidfVectorizer(lowercase=True, ngram_range=(1, 2))
@@ -345,7 +489,7 @@ def run_field_heldout_benchmark(
         scores_by_method = {
             "lexical_tfidf": lexical,
             "structured_action": structured,
-            "hybrid_equal": hybrid,
+            "hybrid": hybrid,
         }
         video_id = _video_cluster_id(clip)
         category = _category_name(clip)
@@ -365,21 +509,54 @@ def run_field_heldout_benchmark(
         global_video_ids.append(video_id)
 
         for method, scores in scores_by_method.items():
-            rank, top_clip_id = _rank(scores, clip.clip_id)
-            global_ranks[method].append(rank)
-            category_ranks[category][method].append(rank)
-            result_row[f"{method}_rank"] = rank
-            result_row[f"{method}_top_clip_id"] = top_clip_id
-            result_row[f"{method}_relevant_score"] = scores[clip.clip_id]
+            outcome = _rank(scores, clip.clip_id)
+            global_ranks[method].append(outcome)
+            category_ranks[category][method].append(outcome)
+            result_row[f"{method}_deterministic_rank"] = outcome.deterministic_rank
+            result_row[f"{method}_best_tied_rank"] = outcome.best_rank
+            result_row[f"{method}_worst_tied_rank"] = outcome.worst_rank
+            result_row[f"{method}_tie_size"] = outcome.tie_size
+            result_row[f"{method}_target_has_positive_score"] = (
+                outcome.best_rank is not None
+            )
+            result_row[f"{method}_positive_candidate_count"] = (
+                outcome.positive_candidate_count
+            )
+            result_row[f"{method}_top_clip_id"] = outcome.top_clip_id
+            result_row[f"{method}_relevant_score"] = outcome.relevant_score
 
             if len(within_ids) >= 2:
                 within_scores = {candidate_id: scores[candidate_id] for candidate_id in within_ids}
-                within_rank, within_top = _rank(within_scores, clip.clip_id)
-                within_ranks[method].append(within_rank)
-                result_row[f"within_video_{method}_rank"] = within_rank
-                result_row[f"within_video_{method}_top_clip_id"] = within_top
+                within_outcome = _rank(within_scores, clip.clip_id)
+                within_ranks[method].append(within_outcome)
+                result_row[f"within_video_{method}_deterministic_rank"] = (
+                    within_outcome.deterministic_rank
+                )
+                result_row[f"within_video_{method}_best_tied_rank"] = (
+                    within_outcome.best_rank
+                )
+                result_row[f"within_video_{method}_worst_tied_rank"] = (
+                    within_outcome.worst_rank
+                )
+                result_row[f"within_video_{method}_tie_size"] = (
+                    within_outcome.tie_size
+                )
+                result_row[f"within_video_{method}_target_has_positive_score"] = (
+                    within_outcome.best_rank is not None
+                )
+                result_row[f"within_video_{method}_positive_candidate_count"] = (
+                    within_outcome.positive_candidate_count
+                )
+                result_row[f"within_video_{method}_top_clip_id"] = (
+                    within_outcome.top_clip_id
+                )
             else:
-                result_row[f"within_video_{method}_rank"] = None
+                result_row[f"within_video_{method}_deterministic_rank"] = None
+                result_row[f"within_video_{method}_best_tied_rank"] = None
+                result_row[f"within_video_{method}_worst_tied_rank"] = None
+                result_row[f"within_video_{method}_tie_size"] = None
+                result_row[f"within_video_{method}_target_has_positive_score"] = None
+                result_row[f"within_video_{method}_positive_candidate_count"] = None
                 result_row[f"within_video_{method}_top_clip_id"] = None
         if len(within_ids) >= 2:
             within_video_ids.append(video_id)
@@ -405,6 +582,7 @@ def run_field_heldout_benchmark(
     )
 
     summary = {
+        "schema_version": "benchmark.v3",
         "benchmark": BENCHMARK_NAME,
         "ground_truth": "weak field alignment: query clip name -> same timestamped clip",
         "query_field": "clip.name/title",
@@ -423,11 +601,28 @@ def run_field_heldout_benchmark(
         "query_count": len(queries),
         "query_eligibility": eligibility,
         "hybrid_alpha_lexical": hybrid_alpha,
-        "hybrid_alpha_policy": "fixed before evaluation; not tuned on benchmark queries",
+        "hybrid_alpha_policy": (
+            "user-specified fixed value for this run; comparing alphas on this same "
+            "benchmark is exploratory and must not be reported as a held-out result"
+        ),
         "bootstrap": {
             "cluster_unit": "video",
             "iterations": BOOTSTRAP_ITERATIONS,
             "seed": BOOTSTRAP_SEED,
+        },
+        "reproducibility": {
+            "clips_sha256": sha256_file(clips_jsonl),
+            "triples_sha256": sha256_file(
+                month1_dir / "action_object_tool_triples.jsonl"
+            ),
+            "verbnet_sha256": sha256_file(month1_dir / "verbnet_mappings.jsonl"),
+            "framenet_sha256": sha256_file(month2_dir / "framenet_mappings.jsonl"),
+            "taxonomy_diagnostic_sha256": sha256_file(
+                month2_dir / "diy_actionnet_v1.jsonl"
+            ),
+            "spacy_model": spacy_model,
+            "structured_scorer": STRUCTURED_SCORER_VERSION,
+            "taxonomy_used_for_ranking": False,
         },
         "tasks": {
             "global": global_summary,
@@ -438,7 +633,8 @@ def run_field_heldout_benchmark(
         "methods": global_summary["methods"],
         "limitations": [
             "The known target comes from field alignment, not a separate human judgment.",
-            "Results describe clips with narrative candidate text and leakage-free parseable queries.",
+            "Results describe narrative candidates after direct-title and exact-phrase controls.",
+            "Clip names and descriptions were jointly generated and can still share partial wording or paraphrases.",
             "Descriptions, goals, tools, and supplies may contain model-generated annotation noise.",
             "The exploratory taxonomy is diagnostic-only and does not affect the structured score.",
             "A human-labeled comparison is still required to decide whether new matches are better.",

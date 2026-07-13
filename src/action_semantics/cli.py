@@ -14,7 +14,7 @@ from .month1 import run_month1 as run_month1_impl
 from .month2 import run_month2 as run_month2_impl
 from .quality import require_nonempty_report, validate_jsonl_basic
 from .quality_review import summarize_manual_review
-from .retrieval.batch_comparison import run_batch_comparison
+from .retrieval.batch_comparison import run_batch_comparison, score_batch_review
 from .retrieval.experiments import run_month3 as run_month3_impl
 from .retrieval.comparison import compare_result_sets, write_comparison_results
 from .retrieval.benchmark import run_field_heldout_benchmark
@@ -341,6 +341,24 @@ def compare_batch(
         hybrid_alpha=hybrid_alpha,
     )
     info(f"Batch comparison complete. Summary written to {paths['summary']}")
+
+
+@app.command("score-review")
+def score_review(
+    rankings_jsonl: Annotated[Path, typer.Option(exists=True, readable=True)],
+    review_csv: Annotated[Path, typer.Option(exists=True, readable=True)],
+    output_json: Annotated[Path, typer.Option()],
+    random_seed: Annotated[int, typer.Option()] = DEFAULT_RANDOM_SEED,
+) -> None:
+    """Score a completed blinded old-vs-new relevance worksheet."""
+    report = score_batch_review(
+        rankings_jsonl=rankings_jsonl,
+        review_csv=review_csv,
+        output_json=output_json,
+        seed=random_seed,
+    )
+    scored_steps = report["dimensions"]["overall_relevant"]["scored_steps"]
+    info(f"Scored {scored_steps} fully labeled steps. Report written to {output_json}")
 
 
 if __name__ == "__main__":

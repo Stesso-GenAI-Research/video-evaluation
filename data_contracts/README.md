@@ -1,6 +1,24 @@
 # Data contracts
 
-This folder describes the JSONL files that the Python pipeline expects. Each JSONL file should have one JSON object per line. The schemas only require the stable fields that the code needs, but they allow extra fields so the real Stesso export can keep additional metadata.
+This folder describes optional experiment inputs. The main pipeline reads the
+nested `indexed-videos-*.jsonl` export directly, so these older clip/step
+contracts are not needed for normal local search.
+
+Each JSONL file has one JSON object per line.
+
+### `original_rankings.schema.json`
+
+This is the important contract for the current comparison experiment. Each row
+contains one query and the exact result order produced by the existing system:
+
+```json
+{"step_id":"step-1","query":"remove old faucet","original_matches":[{"clip_id":"clip-1","rank":1},{"clip_id":"clip-2","rank":2},{"clip_id":"clip-3","rank":3}]}
+```
+
+Ranks must start at 1 and be contiguous. Every row must have the same result
+count as the command's `--top-k` value (default 3). Clip IDs must be canonical
+IDs written by `build-index`. The `compare-batch` command validates the entire
+file before running any search.
 
 ### `clips.schema.json`
 
@@ -14,6 +32,8 @@ This schema describes `steps.jsonl`. Each row represents one project step. The r
 
 This schema describes `pairwise.jsonl`. Each row represents one human or model comparison between two clips for the same step. The required fields are `comparison_id`, `step_id`, `clip_a_id`, `clip_b_id`, and `winner_clip_id`.
 
-The join fields should stay exactly the same across files. In particular, do not rename or anonymize `clip_id`, `step_id`, `clip_a_id`, `clip_b_id`, or `winner_clip_id` if the goal is to reproduce the pairwise evaluation.
+The three schemas below belong to the older generic pairwise pipeline. They are
+kept for compatibility, but they are not the primary workflow for the current
+IndexedVideo experiment.
 
 Extra fields are allowed in all three schemas. This is useful because the export can preserve original Stesso metadata even if the current Python code does not use every field yet.

@@ -2,6 +2,7 @@ import pytest
 
 from action_semantics.models import ActionTriple, ClipRecord
 from action_semantics.retrieval.benchmark import (
+    RankOutcome,
     _candidate_text,
     _metrics,
     _normalized_phrase_occurs,
@@ -90,14 +91,38 @@ def test_normalized_phrase_leakage_requires_token_boundaries():
     assert not _normalized_phrase_occurs("mix", "Continue mixing the ingredients.")
 
 
-def test_rank_uses_relevant_clip_position_and_deterministic_ties():
-    rank, top = _rank({"correct": 0.5, "wrong": 0.8}, "correct")
-    tied_rank, tied_top = _rank({"z": 0.5, "a": 0.5}, "z")
+def _outcome(rank: int) -> RankOutcome:
+    return RankOutcome(
+        deterministic_rank=rank,
+        best_rank=rank,
+        worst_rank=rank,
+        top_clip_id="target" if rank == 1 else "other",
+        relevant_score=1.0 / rank,
+        positive_candidate_count=rank,
+        tie_size=1,
+    )
 
-    assert rank == 2
-    assert top == "wrong"
-    assert tied_rank == 2
-    assert tied_top == "a"
+
+def test_rank_records_positive_tie_interval_and_deterministic_display_order():
+    outcome = _rank({"correct": 0.5, "wrong": 0.8}, "correct")
+    tied = _rank({"z": 0.5, "a": 0.5}, "z")
+
+    assert outcome.deterministic_rank == 2
+    assert outcome.best_rank == outcome.worst_rank == 2
+    assert outcome.top_clip_id == "wrong"
+    assert tied.deterministic_rank == 2
+    assert tied.best_rank == 1
+    assert tied.worst_rank == 2
+    assert tied.tie_size == 2
+    assert tied.top_clip_id == "a"
+
+
+def test_rank_does_not_create_an_arbitrary_rank_from_zero_scores():
+    outcome = _rank({"target": 0.0, "other": 0.0}, "target")
+
+    assert outcome.deterministic_rank is None
+    assert outcome.best_rank is None
+    assert outcome.top_clip_id is None
 
 
 def test_rank_rejects_missing_relevant_clip():
@@ -106,13 +131,42 @@ def test_rank_rejects_missing_relevant_clip():
 
 
 def test_benchmark_metrics_report_hits_mrr_and_median():
-    metrics = _metrics([1, 2, 4])
+    metrics = _metrics([_outcome(1), _outcome(2), _outcome(4)])
 
     assert metrics["hit_at_1"] == 1 / 3
     assert metrics["hit_at_3"] == 2 / 3
     assert metrics["hit_at_10"] == 1.0
     assert metrics["mean_reciprocal_rank"] == (1 + 0.5 + 0.25) / 3
-    assert metrics["median_rank"] == 2.0
+    assert metrics["median_expected_rank_among_positive_targets"] == 2.0
+
+
+def test_benchmark_metrics_use_expected_tie_credit_and_zero_for_no_evidence():
+    tied = RankOutcome(
+        deterministic_rank=2,
+        best_rank=1,
+        worst_rank=2,
+        top_clip_id="a",
+        relevant_score=0.5,
+        positive_candidate_count=2,
+        tie_size=2,
+    )
+    no_evidence = RankOutcome(
+        deterministic_rank=None,
+        best_rank=None,
+        worst_rank=None,
+        top_clip_id=None,
+        relevant_score=0.0,
+        positive_candidate_count=0,
+        tie_size=0,
+    )
+
+    metrics = _metrics([tied, no_evidence])
+
+    assert metrics["target_positive_score_rate"] == 0.5
+    assert metrics["positive_target_tie_rate"] == 0.5
+    assert metrics["hit_at_1"] == 0.25
+    assert metrics["hit_at_3"] == 0.5
+    assert metrics["mean_reciprocal_rank"] == pytest.approx(0.375)
 
 
 def test_empty_metrics_are_explicitly_unavailable():
@@ -126,8 +180,8 @@ def test_empty_metrics_are_explicitly_unavailable():
 def test_cluster_bootstrap_is_paired_and_deterministic():
     arguments = {
         "video_ids": ["video-a", "video-a", "video-b"],
-        "baseline_ranks": [2, 4, 1],
-        "challenger_ranks": [1, 2, 1],
+        "baseline_ranks": [_outcome(2), _outcome(4), _outcome(1)],
+        "challenger_ranks": [_outcome(1), _outcome(2), _outcome(1)],
         "iterations": 200,
         "seed": 99,
     }

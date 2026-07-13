@@ -12,7 +12,7 @@ COMMAND="${1:-all}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/run_local_pipeline.sh [setup|test|build|search|compare|compare-batch|benchmark|review|all]
+Usage: ./scripts/run_local_pipeline.sh [setup|test|build|search|compare|compare-batch|score-review|benchmark|review|all]
 
   setup   Create a Python 3.11-3.13 virtual environment and install dependencies.
   test    Compile the project, run pytest, run Ruff, and show CLI help.
@@ -21,6 +21,7 @@ Usage: ./scripts/run_local_pipeline.sh [setup|test|build|search|compare|compare-
   search  Search clips; extra flags such as --method and --top-k are forwarded.
   compare Diff an explicit old/lexical set against structured or hybrid search.
   compare-batch  Compare a JSONL file of real original rankings and make a blind review CSV.
+  score-review   Score the completed batch-comparison blind review worksheet.
   benchmark Run the field-held-out lexical/structured/hybrid experiment.
   review  Summarize the human labels added to manual_review_sample.csv.
   all     Test, build, and benchmark. Setup runs only if the environment is absent.
@@ -71,6 +72,7 @@ run_tests() {
   "$VENV_DIR/bin/python" -m compileall -q "$ROOT_DIR/src" "$ROOT_DIR/tests"
   "$VENV_DIR/bin/python" -m pytest -q
   "$VENV_DIR/bin/ruff" check "$ROOT_DIR/src" "$ROOT_DIR/tests"
+  bash -n "$ROOT_DIR/scripts/run_local_pipeline.sh"
   "$VENV_DIR/bin/action-semantics" --help
 }
 
@@ -88,6 +90,26 @@ run_sample() {
   echo
   echo "Sample report: $SAMPLE_OUTPUT_DIR/sample_analysis_report.json"
   echo "Review worksheet: $SAMPLE_OUTPUT_DIR/quality/manual_review_sample.csv"
+}
+
+index_is_current() {
+  local profile="$SAMPLE_OUTPUT_DIR/input/indexed_video_profile.json"
+  local triples="$SAMPLE_OUTPUT_DIR/month1/action_object_tool_triples.jsonl"
+  if [[ ! -f "$SAMPLE_JSONL" || ! -f "$profile" || ! -f "$triples" ]]; then
+    return 1
+  fi
+  local stored_hash
+  local current_hash
+  stored_hash="$("$VENV_DIR/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("source_sha256", ""))' "$profile")"
+  current_hash="$(shasum -a 256 "$SAMPLE_JSONL" | cut -d ' ' -f 1)"
+  [[ -n "$stored_hash" && "$stored_hash" == "$current_hash" ]]
+}
+
+ensure_sample_index() {
+  if ! index_is_current; then
+    echo "The index is missing or belongs to a different SAMPLE_JSONL; rebuilding it."
+    run_sample
+  fi
 }
 
 summarize_review() {
@@ -110,13 +132,11 @@ search_sample() {
     echo 'Provide a query, for example: ./scripts/run_local_pipeline.sh search "remove old faucet"' >&2
     return 1
   fi
-  if [[ ! -f "$SAMPLE_OUTPUT_DIR/month1/action_object_tool_triples.jsonl" ]]; then
-    run_sample
-  fi
+  ensure_sample_index
   local slug
   slug="$(printf '%s' "$query" | tr '[:upper:] ' '[:lower:]_' | tr -cd 'a-z0-9_-')"
   local query_hash
-  query_hash="$(printf '%s' "$query" | shasum -a 256 | cut -c 1-8)"
+  query_hash="$(printf '%s|' "$query" "${@:3}" | shasum -a 256 | cut -c 1-8)"
   slug="${slug:0:48}_${query_hash}"
   "$VENV_DIR/bin/action-semantics" search \
     --query "$query" \
@@ -134,13 +154,11 @@ compare_sample() {
     echo 'Provide a query, for example: ./scripts/run_local_pipeline.sh compare "remove old faucet"' >&2
     return 1
   fi
-  if [[ ! -f "$SAMPLE_OUTPUT_DIR/month1/action_object_tool_triples.jsonl" ]]; then
-    run_sample
-  fi
+  ensure_sample_index
   local slug
   slug="$(printf '%s' "$query" | tr '[:upper:] ' '[:lower:]_' | tr -cd 'a-z0-9_-')"
   local query_hash
-  query_hash="$(printf '%s' "$query" | shasum -a 256 | cut -c 1-8)"
+  query_hash="$(printf '%s|' "$query" "${ORIGINAL_CLIP_IDS:-}" "${@:3}" | shasum -a 256 | cut -c 1-8)"
   slug="${slug:0:48}_${query_hash}"
   local compare_command=(
     "$VENV_DIR/bin/action-semantics" compare
@@ -168,9 +186,7 @@ compare_batch_sample() {
     echo 'Provide an existing JSONL file: ./scripts/run_local_pipeline.sh compare-batch path/to/comparisons.jsonl' >&2
     return 1
   fi
-  if [[ ! -f "$SAMPLE_OUTPUT_DIR/month1/action_object_tool_triples.jsonl" ]]; then
-    run_sample
-  fi
+  ensure_sample_index
   "$VENV_DIR/bin/action-semantics" compare-batch \
     --comparisons-jsonl "$comparisons_jsonl" \
     --clips-jsonl "$SAMPLE_OUTPUT_DIR/input/indexed_video_clips.jsonl" \
@@ -181,11 +197,24 @@ compare_batch_sample() {
   echo "Blind review worksheet: $SAMPLE_OUTPUT_DIR/batch-comparison/blind_review.csv"
 }
 
+score_batch_review_sample() {
+  ensure_environment
+  local comparison_dir="$SAMPLE_OUTPUT_DIR/batch-comparison"
+  if [[ ! -f "$comparison_dir/rankings.jsonl" || ! -f "$comparison_dir/blind_review.csv" ]]; then
+    echo "Batch comparison artifacts were not found under: $comparison_dir" >&2
+    echo "Run compare-batch first." >&2
+    return 1
+  fi
+  "$VENV_DIR/bin/action-semantics" score-review \
+    --rankings-jsonl "$comparison_dir/rankings.jsonl" \
+    --review-csv "$comparison_dir/blind_review.csv" \
+    --output-json "$comparison_dir/review_scores.json" \
+    "${@:2}"
+}
+
 benchmark_sample() {
   ensure_environment
-  if [[ ! -f "$SAMPLE_OUTPUT_DIR/month1/action_object_tool_triples.jsonl" ]]; then
-    run_sample
-  fi
+  ensure_sample_index
   "$VENV_DIR/bin/action-semantics" benchmark \
     --clips-jsonl "$SAMPLE_OUTPUT_DIR/input/indexed_video_clips.jsonl" \
     --month1-dir "$SAMPLE_OUTPUT_DIR/month1" \
@@ -202,6 +231,7 @@ case "$COMMAND" in
   search) search_sample "$@" ;;
   compare) compare_sample "$@" ;;
   compare-batch) compare_batch_sample "$@" ;;
+  score-review) score_batch_review_sample "$@" ;;
   review) summarize_review ;;
   all)
     run_tests
