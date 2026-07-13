@@ -16,9 +16,23 @@ contains one query and the exact result order produced by the existing system:
 ```
 
 Ranks must start at 1 and be contiguous. Every row must have the same result
-count as the command's `--top-k` value (default 3). Clip IDs must be canonical
-IDs written by `build-index`. The `compare-batch` command validates the entire
-file before running any search.
+count as the command's `--top-k` value (default 3). A match can use a canonical
+`clip_id` written by `build-index`, or the source `video_id`, `start_seconds`,
+and `end_seconds`:
+
+```json
+{"video_id":"1451721","start_seconds":94.616,"end_seconds":118.3,"rank":1}
+```
+
+Timestamp references are resolved to canonical IDs with a 0.05-second default
+tolerance. The command rejects missing and ambiguous matches before running
+search; change the tolerance with `--timestamp-tolerance-seconds` when needed.
+
+## Legacy generic pairwise contracts
+
+The next three schemas belong to the older dense/pairwise pipeline. They are
+kept for compatibility and are not needed by `build`, `search`, `compare`, or
+the current automatic benchmark.
 
 ### `clips.schema.json`
 
@@ -31,9 +45,5 @@ This schema describes `steps.jsonl`. Each row represents one project step. The r
 ### `pairwise.schema.json`
 
 This schema describes `pairwise.jsonl`. Each row represents one human or model comparison between two clips for the same step. The required fields are `comparison_id`, `step_id`, `clip_a_id`, `clip_b_id`, and `winner_clip_id`.
-
-The three schemas below belong to the older generic pairwise pipeline. They are
-kept for compatibility, but they are not the primary workflow for the current
-IndexedVideo experiment.
 
 Extra fields are allowed in all three schemas. This is useful because the export can preserve original Stesso metadata even if the current Python code does not use every field yet.

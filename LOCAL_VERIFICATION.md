@@ -13,6 +13,7 @@ Verified July 13, 2026 on macOS with Python 3.13.14.
 ./scripts/run_local_pipeline.sh search "remove old faucet" --method structured
 ./scripts/run_local_pipeline.sh search "remove old faucet" --method hybrid
 ./scripts/run_local_pipeline.sh search "paint wall" --method hybrid --max-per-video 1
+./scripts/run_local_pipeline.sh search "paint wall with primer" --method hybrid
 ./scripts/run_local_pipeline.sh search "tighten screw with screwdriver" \
   --method hybrid --max-per-video 1
 ```
@@ -21,7 +22,7 @@ The test command runs compilation, pytest, Ruff, CLI help, and the Bash syntax
 check. The final result was:
 
 ```text
-55 passed
+59 passed
 All Ruff checks passed
 CLI help rendered successfully
 Bash syntax check passed
@@ -67,6 +68,10 @@ the first two results for lexical, structured, and hybrid search.
 `paint wall` exercised the terse-imperative parser fallback and returned
 `Prepare and Paint Closet Walls` first.
 
+`paint wall with primer` returned the same clip with a supply-context signal of
+1.0. This verifies that parsed supply inventory participates in structured
+ranking without treating spatial phrases as supplies.
+
 `tighten screw with screwdriver` returned `Tighten the Set Screws` first, with
 action, object, and tool signals all equal to 1.0.
 
@@ -74,6 +79,18 @@ The nominal query `faucet removal` did not produce a false structured action.
 Hybrid search fell back to lexical results and included an explicit warning.
 
 These are functional smoke tests, not accuracy estimates.
+
+## Batch comparison checks
+
+A real-resource batch smoke test supplied three old results as source video ID
+plus start/end timestamps. All three resolved to the correct canonical clip
+IDs within the 0.05-second tolerance, the hybrid challenger returned all three
+requested slots, and the command wrote a blinded worksheet. The overlap was
+3/3 for this smoke query; that checks the machinery and is not a quality claim.
+
+The batch implementation fits TF-IDF and loads structured resources once per
+batch instead of once per query. Tests also verify that rerunning a batch cannot
+overwrite a worksheet containing human labels or notes.
 
 ## Benchmark checks
 
@@ -87,26 +104,25 @@ same 462 queries.
 The benchmark now counts a zero target score as no retrieved result. It also
 uses expected credit across exact score ties instead of letting clip-ID order
 choose the outcome. The structured method had a positive target score for 340
-of 462 queries (73.6%) and a positive target tie on 213 queries (46.1%).
+of 462 queries (73.6%) and a positive target tie on 211 queries (45.7%).
 
 Whole-corpus results:
 
 ```text
 method                 Hit@1   Hit@3   Hit@10   MRR
 lexical TF-IDF          .632    .855     .933   .749
-structured action       .263    .366     .475   .336
-50/50 hybrid            .504    .613     .677   .574
+structured action       .264    .363     .471   .335
+50/50 hybrid            .506    .615     .680   .577
 ```
 
 For hybrid minus lexical Hit@1, the video-cluster bootstrap estimate was
--0.128 with a 95% interval of approximately [-0.188, -0.070]. The hybrid is
+-0.126 with a 95% interval of approximately [-0.184, -0.069]. The hybrid is
 therefore worse on this whole-corpus proxy task.
 
-In the within-video task, lexical reached Hit@1 = .727 and hybrid reached .723.
-The hybrid-minus-lexical estimate was -0.004 with a 95% interval of
-approximately [-0.058, 0.050]. This run detected no reliable difference, but
-the interval still allows modest harm or benefit and is not an equivalence
-test.
+In the within-video task, lexical and hybrid both reached Hit@1 = .727. The
+hybrid-minus-lexical estimate was 0.000 with a 95% interval of approximately
+[-0.049, 0.054]. This run detected no reliable difference, but the interval
+still allows modest harm or benefit and is not an equivalence test.
 
 ## Remaining manual check
 

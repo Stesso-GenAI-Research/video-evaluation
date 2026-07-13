@@ -11,13 +11,14 @@ from action_semantics.io_utils import read_clips, sha256_file
 from action_semantics.models import TextSegment
 from action_semantics.retrieval.lexical import (
     PRODUCTION_CANDIDATE_FIELDS,
+    TfidfIndex,
     tfidf_scores,
 )
 from action_semantics.retrieval.scorers import (
     STRUCTURED_SCORER_VERSION,
     StructuredResources,
     resources_from_files,
-    structured_score,
+    structured_score_for_triples,
 )
 from action_semantics.text import normalize_term
 
@@ -90,6 +91,10 @@ def rank_indexed_clips(
     hybrid_alpha: float = 0.5,
     max_per_video: int | None = None,
     include_zero_scores: bool = False,
+    preloaded_clips: list[Any] | None = None,
+    preloaded_tfidf: TfidfIndex | None = None,
+    preloaded_resources: StructuredResources | None = None,
+    precomputed_clips_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Rank clips and return a stable, explainable search response.
 
@@ -109,11 +114,15 @@ def rank_indexed_clips(
     if max_per_video is not None and max_per_video < 1:
         raise ValueError("max_per_video must be at least 1 when provided.")
 
-    clips = read_clips(clips_jsonl)
-    lexical = tfidf_scores(query_text, clips)
+    clips = preloaded_clips if preloaded_clips is not None else read_clips(clips_jsonl)
+    lexical = (
+        preloaded_tfidf.scores(query_text)
+        if preloaded_tfidf is not None
+        else tfidf_scores(query_text, clips)
+    )
     query_triples = _query_triples(query_text, spacy_model)
     warnings: list[str] = []
-    base: StructuredResources | None = None
+    base: StructuredResources | None = preloaded_resources
     if not query_triples and method in {"structured", "hybrid"}:
         base = resources_from_files(month1_dir, month2_dir)
         query_triples = _imperative_fallback_triples(
@@ -141,14 +150,10 @@ def rank_indexed_clips(
     structured: dict[str, dict[str, float]] = {}
     if query_triples and method in {"structured", "hybrid"}:
         base = base or resources_from_files(month1_dir, month2_dir)
-        resources = StructuredResources(
-            triples=[*base.triples, *query_triples],
-            verbnet=base.verbnet,
-            framenet=base.framenet,
-            taxonomy=base.taxonomy,
-        )
         structured = {
-            clip.clip_id: structured_score(QUERY_ID, clip.clip_id, resources)
+            clip.clip_id: structured_score_for_triples(
+                query_triples, clip.clip_id, base
+            )
             for clip in clips
         }
 
@@ -228,7 +233,7 @@ def rank_indexed_clips(
         )
 
     return {
-        "schema_version": "search.v2",
+        "schema_version": "search.v3",
         "query": {
             "text": query_text,
             "actions": sorted({row.action_lemma for row in query_triples}),
@@ -252,17 +257,25 @@ def rank_indexed_clips(
                 }
             ),
         },
+        "requested_method": method,
         "method": (
             "lexical_fallback"
             if method == "hybrid" and not query_triples
             else method
         ),
-        "hybrid_alpha_lexical": hybrid_alpha if method == "hybrid" else None,
+        "requested_hybrid_alpha_lexical": (
+            hybrid_alpha if method == "hybrid" else None
+        ),
+        "hybrid_alpha_lexical": (
+            (1.0 if not query_triples else hybrid_alpha)
+            if method == "hybrid"
+            else None
+        ),
         "requested_top_k": top_k,
         "returned_count": len(selected),
         "max_per_video": max_per_video,
         "index": {
-            "clips_sha256": sha256_file(clips_jsonl),
+            "clips_sha256": precomputed_clips_sha256 or sha256_file(clips_jsonl),
             "canonical_schema": "indexed-video-segments-v2",
             "canonical_clip_count": len(clips),
             "production_lexical_fields": PRODUCTION_CANDIDATE_FIELDS,

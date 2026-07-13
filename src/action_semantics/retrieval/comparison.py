@@ -109,7 +109,7 @@ def compare_result_sets(
     )
     challenger_rows = _rerank(challenger_search["results"], challenger_ids)
     for row in challenger_rows:
-        row["ranking_method"] = challenger_method
+        row["ranking_method"] = challenger_search["method"]
     if original_clip_ids is None:
         # Preserve the score from the method that actually selected the
         # baseline ranking rather than displaying the challenger's score.
@@ -129,7 +129,7 @@ def compare_result_sets(
         clip_id: rank for rank, clip_id in enumerate(challenger_ids, start=1)
     }
     return {
-        "schema_version": "comparison.v2",
+        "schema_version": "comparison.v3",
         "query": query_text,
         "top_k": top_k,
         "configuration": {
@@ -147,7 +147,11 @@ def compare_result_sets(
         },
         "challenger": {
             "label": "action_semantic_search",
-            "method": challenger_method,
+            "requested_method": challenger_method,
+            "method": challenger_search["method"],
+            "effective_hybrid_alpha_lexical": challenger_search[
+                "hybrid_alpha_lexical"
+            ],
             "results": challenger_rows,
         },
         "set_difference": {

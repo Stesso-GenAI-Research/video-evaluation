@@ -16,9 +16,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from action_semantics.io_utils import read_clips, write_csv, write_jsonl
+from action_semantics.io_utils import read_clips, sha256_file, write_csv, write_jsonl
 from action_semantics.retrieval.evaluation import bootstrap_ci
+from action_semantics.retrieval.lexical import TfidfIndex
 from action_semantics.retrieval.provenance import build_retrieval_provenance
+from action_semantics.retrieval.scorers import resources_from_files
 from action_semantics.retrieval.search import rank_indexed_clips
 
 
@@ -31,19 +33,74 @@ _BOOTSTRAP_DRAWS = 5000
 
 
 class OriginalMatchInput(BaseModel):
-    """One result from the supplied, pre-existing ranking."""
+    """One old result identified canonically or by source video timestamps."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    clip_id: str
+    clip_id: str | None = None
+    video_id: str | int | None = None
+    start_seconds: float | int | None = None
+    end_seconds: float | int | None = None
     rank: int = Field(ge=1)
 
     @field_validator("clip_id")
     @classmethod
-    def clip_id_is_not_blank(cls, value: str) -> str:
-        if not value.strip():
+    def clip_id_is_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
             raise ValueError("clip_id must not be blank")
-        return value.strip()
+        return value.strip() if value is not None else None
+
+    @field_validator("video_id")
+    @classmethod
+    def video_id_is_not_blank(cls, value: str | int | None) -> str | int | None:
+        if isinstance(value, str) and not value.strip():
+            raise ValueError("video_id must not be blank")
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def has_complete_reference(self) -> "OriginalMatchInput":
+        timestamp_values = (self.video_id, self.start_seconds, self.end_seconds)
+        has_any_timestamp = any(value is not None for value in timestamp_values)
+        has_all_timestamps = all(value is not None for value in timestamp_values)
+        if self.clip_id is None and not has_all_timestamps:
+            raise ValueError(
+                "provide clip_id or video_id + start_seconds + end_seconds"
+            )
+        if has_any_timestamp and not has_all_timestamps:
+            raise ValueError(
+                "video_id, start_seconds, and end_seconds must be supplied together"
+            )
+        if has_all_timestamps and float(self.start_seconds) < 0.0:
+            raise ValueError("start_seconds must be non-negative")
+        if has_all_timestamps and float(self.end_seconds) <= float(self.start_seconds):
+            raise ValueError("end_seconds must be greater than start_seconds")
+        return self
+
+    def reference_key(self) -> tuple[Any, ...]:
+        if self.clip_id is not None:
+            return ("clip_id", self.clip_id)
+        return (
+            "timestamp",
+            str(self.video_id),
+            float(self.start_seconds),
+            float(self.end_seconds),
+        )
+
+    def reference_dict(self) -> dict[str, Any]:
+        return {
+            key: value
+            for key, value in {
+                "clip_id": self.clip_id,
+                "video_id": str(self.video_id) if self.video_id is not None else None,
+                "start_seconds": (
+                    float(self.start_seconds) if self.start_seconds is not None else None
+                ),
+                "end_seconds": (
+                    float(self.end_seconds) if self.end_seconds is not None else None
+                ),
+            }.items()
+            if value is not None
+        }
 
 
 class StepComparisonInput(BaseModel):
@@ -64,9 +121,9 @@ class StepComparisonInput(BaseModel):
 
     @model_validator(mode="after")
     def originals_are_unique_and_ranked_in_supplied_order(self) -> "StepComparisonInput":
-        clip_ids = [row.clip_id for row in self.original_matches]
-        if len(set(clip_ids)) != len(clip_ids):
-            raise ValueError("original_matches contains duplicate clip_id values")
+        references = [row.reference_key() for row in self.original_matches]
+        if len(set(references)) != len(references):
+            raise ValueError("original_matches contains duplicate result references")
         ranks = [row.rank for row in self.original_matches]
         expected = list(range(1, len(ranks) + 1))
         if ranks != expected:
@@ -142,6 +199,72 @@ def _ranked_clip(clip: Any, rank: int) -> dict[str, Any]:
     return {"rank": rank, **_clip_fields(clip)}
 
 
+def _clip_interval(clip: Any) -> tuple[float | None, float | None]:
+    metadata = clip.gemini_metadata.get("clip", {})
+    if not isinstance(metadata, dict):
+        return None, None
+    start = metadata.get("start_seconds")
+    end = metadata.get("end_seconds")
+    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+        return None, None
+    return float(start), float(end)
+
+
+def _resolve_original_reference(
+    match: OriginalMatchInput,
+    *,
+    clips_by_id: dict[str, Any],
+    clips: list[Any],
+    tolerance_seconds: float,
+) -> tuple[str, str]:
+    """Resolve one supervisor result and report how it was matched."""
+    if match.clip_id is not None and match.clip_id in clips_by_id:
+        if match.video_id is not None:
+            clip = clips_by_id[match.clip_id]
+            start, end = _clip_interval(clip)
+            if (
+                str(clip.video_id) != str(match.video_id)
+                or start is None
+                or end is None
+                or abs(start - float(match.start_seconds)) > tolerance_seconds
+                or abs(end - float(match.end_seconds)) > tolerance_seconds
+            ):
+                raise ValueError(
+                    f"clip_id {match.clip_id!r} conflicts with its supplied video/timestamps"
+                )
+        return match.clip_id, "canonical_clip_id"
+
+    if match.video_id is None:
+        raise ValueError(f"unknown canonical clip_id: {match.clip_id!r}")
+    target_start = float(match.start_seconds)
+    target_end = float(match.end_seconds)
+    candidates: list[str] = []
+    for clip in clips:
+        if str(clip.video_id) != str(match.video_id):
+            continue
+        start, end = _clip_interval(clip)
+        if (
+            start is not None
+            and end is not None
+            and abs(start - target_start) <= tolerance_seconds
+            and abs(end - target_end) <= tolerance_seconds
+        ):
+            candidates.append(clip.clip_id)
+    if not candidates:
+        raise ValueError(
+            "no canonical clip matches "
+            f"video_id={match.video_id!r}, start={target_start}, end={target_end} "
+            f"within ±{tolerance_seconds} seconds"
+        )
+    if len(candidates) > 1:
+        raise ValueError(
+            "timestamp reference is ambiguous for "
+            f"video_id={match.video_id!r}, start={target_start}, end={target_end}: "
+            f"{sorted(candidates)}"
+        )
+    return candidates[0], "video_timestamp"
+
+
 def _jaccard(left: list[str], right: list[str]) -> float:
     left_set = set(left)
     right_set = set(right)
@@ -160,6 +283,7 @@ def run_batch_comparison(
     challenger_method: ChallengerMethod = "hybrid",
     top_k: int = 3,
     hybrid_alpha: float = 0.5,
+    timestamp_tolerance_seconds: float = 0.05,
 ) -> dict[str, Path]:
     """Compare supplied rankings with structured or hybrid top-k results.
 
@@ -173,6 +297,8 @@ def run_batch_comparison(
         raise ValueError("top_k must be at least 1")
     if not 0.0 <= hybrid_alpha <= 1.0:
         raise ValueError("hybrid_alpha must be between 0 and 1")
+    if timestamp_tolerance_seconds < 0.0:
+        raise ValueError("timestamp_tolerance_seconds must be non-negative")
 
     inputs = _read_inputs(comparisons_jsonl)
     clips = read_clips(clips_jsonl)
@@ -180,17 +306,31 @@ def run_batch_comparison(
     if len(clips_by_id) != len(clips):
         raise ValueError("clips_jsonl contains duplicate clip_id values")
 
-    missing_by_step: dict[str, list[str]] = {}
+    resolved_original_ids: list[list[str]] = []
+    resolution_methods: Counter[str] = Counter()
+    resolution_errors: dict[str, list[str]] = {}
     for row in inputs:
-        missing = [
-            match.clip_id
-            for match in row.original_matches
-            if match.clip_id not in clips_by_id
-        ]
-        if missing:
-            missing_by_step[row.step_id] = missing
-    if missing_by_step:
-        raise ValueError(f"Original result IDs are not in the indexed corpus: {missing_by_step}")
+        step_ids: list[str] = []
+        for match in row.original_matches:
+            try:
+                resolved_id, resolution_method = _resolve_original_reference(
+                    match,
+                    clips_by_id=clips_by_id,
+                    clips=clips,
+                    tolerance_seconds=timestamp_tolerance_seconds,
+                )
+            except ValueError as exc:
+                resolution_errors.setdefault(row.step_id, []).append(str(exc))
+                continue
+            step_ids.append(resolved_id)
+            resolution_methods[resolution_method] += 1
+        if len(set(step_ids)) != len(step_ids):
+            resolution_errors.setdefault(row.step_id, []).append(
+                "multiple supplied results resolve to the same canonical clip_id"
+            )
+        resolved_original_ids.append(step_ids)
+    if resolution_errors:
+        raise ValueError(f"Could not resolve original result references: {resolution_errors}")
     wrong_original_counts = {
         row.step_id: len(row.original_matches)
         for row in inputs
@@ -214,10 +354,14 @@ def run_batch_comparison(
             hybrid_alpha if challenger_method == "hybrid" else None
         ),
         "spacy_model": spacy_model,
+        "timestamp_tolerance_seconds": timestamp_tolerance_seconds,
     }
 
     # Rank every query before writing so a parser or search failure cannot leave
     # a partially completed experiment directory.
+    tfidf_index = TfidfIndex.from_clips(clips)
+    structured_resources = resources_from_files(month1_dir, month2_dir)
+    clips_sha256 = sha256_file(clips_jsonl)
     searches: list[dict[str, Any]] = []
     for row in inputs:
         searches.append(
@@ -230,6 +374,10 @@ def run_batch_comparison(
                 top_k=top_k,
                 method=challenger_method,
                 hybrid_alpha=hybrid_alpha,
+                preloaded_clips=clips,
+                preloaded_tfidf=tfidf_index,
+                preloaded_resources=structured_resources,
+                precomputed_clips_sha256=clips_sha256,
             )
         )
 
@@ -239,10 +387,21 @@ def run_batch_comparison(
     overlap_counts: list[int] = []
     jaccards: list[float] = []
     challenger_counts: list[int] = []
+    effective_method_counts: Counter[str] = Counter()
+    search_warning_count = 0
 
-    for input_row, search in zip(inputs, searches, strict=True):
-        original_ids = [row.clip_id for row in input_row.original_matches]
+    for input_row, original_ids, search in zip(
+        inputs, resolved_original_ids, searches, strict=True
+    ):
         challenger_ids = [str(row["clip_id"]) for row in search["results"]]
+        effective_method = str(search.get("method", challenger_method))
+        effective_method_counts[effective_method] += 1
+        search_warnings = search.get("warnings", [])
+        if not isinstance(search_warnings, list):
+            raise ValueError(
+                f"Search returned invalid warnings for step {input_row.step_id}"
+            )
+        search_warning_count += bool(search_warnings)
         if len(set(challenger_ids)) != len(challenger_ids):
             raise ValueError(
                 f"Search returned duplicate clip IDs for step {input_row.step_id}"
@@ -257,7 +416,10 @@ def run_batch_comparison(
             )
 
         original_rank = {
-            match.clip_id: match.rank for match in input_row.original_matches
+            clip_id: match.rank
+            for clip_id, match in zip(
+                original_ids, input_row.original_matches, strict=True
+            )
         }
         challenger_rank = {
             clip_id: rank for rank, clip_id in enumerate(challenger_ids, start=1)
@@ -274,19 +436,30 @@ def run_batch_comparison(
         challenger_label = "B" if original_is_a else "A"
         ranking_rows.append(
             {
-                "schema_version": "batch_comparison.rankings.v1",
+                "schema_version": "batch_comparison.rankings.v2",
                 "step_id": input_row.step_id,
                 "query": input_row.query,
                 "configuration": configuration,
                 "provenance": provenance,
                 "original_matches": [
-                    _ranked_clip(clips_by_id[match.clip_id], match.rank)
-                    for match in input_row.original_matches
+                    {
+                        **_ranked_clip(clips_by_id[clip_id], match.rank),
+                        "input_reference": match.reference_dict(),
+                    }
+                    for clip_id, match in zip(
+                        original_ids, input_row.original_matches, strict=True
+                    )
                 ],
                 "challenger": {
-                    "method": challenger_method,
+                    "requested_method": challenger_method,
+                    "method": effective_method,
+                    "effective_hybrid_alpha_lexical": search.get(
+                        "hybrid_alpha_lexical",
+                        hybrid_alpha if challenger_method == "hybrid" else None,
+                    ),
                     "requested_top_k": top_k,
                     "returned_count": len(challenger_ids),
+                    "warnings": search_warnings,
                     "matches": [
                         _ranked_clip(clips_by_id[clip_id], rank)
                         for rank, clip_id in enumerate(challenger_ids, start=1)
@@ -334,7 +507,7 @@ def run_batch_comparison(
     requested_slots = step_count * top_k
     returned_slots = sum(challenger_counts)
     summary = {
-        "schema_version": "batch_comparison.summary.v1",
+        "schema_version": "batch_comparison.summary.v2",
         "challenger_method": challenger_method,
         "requested_top_k": top_k,
         "configuration": configuration,
@@ -353,6 +526,9 @@ def run_batch_comparison(
             "challenger_slots_requested": requested_slots,
             "challenger_slots_returned": returned_slots,
             "challenger_slot_coverage": returned_slots / requested_slots,
+            "original_reference_resolution_counts": dict(resolution_methods),
+            "effective_challenger_method_counts": dict(effective_method_counts),
+            "steps_with_search_warnings": search_warning_count,
         },
         "overlap": {
             "steps_with_any_overlap": sum(count > 0 for count in overlap_counts),
@@ -370,7 +546,14 @@ def run_batch_comparison(
 
     canonical_review_path = output_dir / "blind_review.csv"
     preserved_existing_review = _contains_human_review(canonical_review_path)
-    suffix = ".generated" if preserved_existing_review else ""
+    suffix = ""
+    if preserved_existing_review:
+        generation = 1
+        while True:
+            suffix = ".generated" if generation == 1 else f".generated-{generation}"
+            if not _contains_human_review(output_dir / f"blind_review{suffix}.csv"):
+                break
+            generation += 1
     rankings_path = output_dir / f"rankings{suffix}.jsonl"
     summary_path = output_dir / f"comparison_summary{suffix}.json"
     review_path = output_dir / f"blind_review{suffix}.csv"

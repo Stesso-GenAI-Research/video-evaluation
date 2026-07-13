@@ -12,7 +12,7 @@ COMMAND="${1:-all}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/run_local_pipeline.sh [setup|test|build|search|compare|compare-batch|score-review|benchmark|review|all]
+Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|compare-batch|score-review|benchmark|review|all]
 
   setup   Create a Python 3.11-3.13 virtual environment and install dependencies.
   test    Compile the project, run pytest, run Ruff, and show CLI help.

@@ -201,7 +201,7 @@ def test_public_search_ranks_results_and_applies_video_diversity(tmp_path, monke
         max_per_video=1,
     )
 
-    assert result["schema_version"] == "search.v2"
+    assert result["schema_version"] == "search.v3"
     assert [row["clip_id"] for row in result["results"]] == ["best", "other-video"]
     assert [row["rank"] for row in result["results"]] == [1, 2]
     assert result["query"]["with_or_using_context"] == ["wrench"]
@@ -233,6 +233,9 @@ def test_hybrid_search_falls_back_to_lexical_when_query_parse_fails(
     )
 
     assert result["method"] == "lexical_fallback"
+    assert result["requested_method"] == "hybrid"
+    assert result["requested_hybrid_alpha_lexical"] == 0.5
+    assert result["hybrid_alpha_lexical"] == 1.0
     assert result["results"][0]["clip_id"] == "clip-1"
     assert "no verb" in result["warnings"][0]
 

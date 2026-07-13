@@ -347,6 +347,7 @@ def compare_batch(
     ] = ChallengerMethodChoice.hybrid,
     top_k: Annotated[int, typer.Option(min=1)] = 3,
     hybrid_alpha: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.5,
+    timestamp_tolerance_seconds: Annotated[float, typer.Option(min=0.0)] = 0.05,
     spacy_model: Annotated[str, typer.Option()] = DEFAULT_SPACY_MODEL,
 ) -> None:
     """Compare many supplied original rankings and create a blinded review sheet."""
@@ -360,6 +361,7 @@ def compare_batch(
         challenger_method=challenger_method.value,
         top_k=top_k,
         hybrid_alpha=hybrid_alpha,
+        timestamp_tolerance_seconds=timestamp_tolerance_seconds,
     )
     info(f"Batch comparison complete. Summary written to {paths['summary']}")
     info(f"Blind review worksheet written to {paths['blind_review']}")

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 
@@ -20,6 +22,43 @@ PRODUCTION_CANDIDATE_FIELDS = [
     "video.goal",
     "video.category",
 ]
+
+
+@dataclass(frozen=True)
+class TfidfIndex:
+    """One fitted candidate matrix that can score many queries cheaply."""
+
+    clip_ids: list[str]
+    vectorizer: TfidfVectorizer
+    candidate_matrix: Any
+
+    @classmethod
+    def from_clips(
+        cls,
+        clips: list[ClipRecord],
+        *,
+        documents: list[str] | None = None,
+    ) -> "TfidfIndex":
+        candidate_documents = documents or [production_candidate_text(clip) for clip in clips]
+        if len(candidate_documents) != len(clips):
+            raise ValueError("The number of TF-IDF documents must equal the number of clips.")
+        vectorizer = TfidfVectorizer(
+            lowercase=True, ngram_range=(1, 2), sublinear_tf=True
+        )
+        candidate_matrix = vectorizer.fit_transform(candidate_documents)
+        return cls(
+            clip_ids=[clip.clip_id for clip in clips],
+            vectorizer=vectorizer,
+            candidate_matrix=candidate_matrix,
+        )
+
+    def scores(self, query_text: str) -> dict[str, float]:
+        query_vector = self.vectorizer.transform([query_text])
+        scores = (self.candidate_matrix @ query_vector.T).toarray().ravel()
+        return {
+            clip_id: float(score)
+            for clip_id, score in zip(self.clip_ids, scores, strict=True)
+        }
 
 
 def _strings(values: Iterable[object]) -> list[str]:
@@ -76,14 +115,4 @@ def tfidf_scores(
     """Fit a deterministic candidate-only TF-IDF baseline and score one query."""
     if not clips:
         return {}
-    candidate_documents = documents or [production_candidate_text(clip) for clip in clips]
-    if len(candidate_documents) != len(clips):
-        raise ValueError("The number of TF-IDF documents must equal the number of clips.")
-    vectorizer = TfidfVectorizer(lowercase=True, ngram_range=(1, 2), sublinear_tf=True)
-    candidate_matrix = vectorizer.fit_transform(candidate_documents)
-    query_vector = vectorizer.transform([query_text])
-    scores = (candidate_matrix @ query_vector.T).toarray().ravel()
-    return {
-        clip.clip_id: float(score)
-        for clip, score in zip(clips, scores, strict=True)
-    }
+    return TfidfIndex.from_clips(clips, documents=documents).scores(query_text)

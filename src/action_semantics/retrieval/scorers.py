@@ -208,7 +208,21 @@ def structured_score(
     resources: StructuredResources,
     weights: StructuredWeights | None = None,
 ) -> dict[str, float]:
-    step_triples = resources.triples_for("step", step_id)
+    return structured_score_for_triples(
+        resources.triples_for("step", step_id),
+        clip_id,
+        resources,
+        weights,
+    )
+
+
+def structured_score_for_triples(
+    query_triples: list[ActionTriple],
+    clip_id: str,
+    resources: StructuredResources,
+    weights: StructuredWeights | None = None,
+) -> dict[str, float]:
+    """Score already-parsed query triples without rebuilding corpus lookups."""
     clip_triples = resources.triples_for("clip", clip_id)
     metric_names = (
         "structured_score",
@@ -223,12 +237,12 @@ def structured_score(
         "supply_match",
         "scope_match",
     )
-    if not step_triples or not clip_triples:
+    if not query_triples or not clip_triples:
         return {name: 0.0 for name in metric_names}
 
     base_weights = weights or StructuredWeights()
     aligned: list[dict[str, float]] = []
-    for query in step_triples:
+    for query in query_triples:
         candidates = [
             _triple_pair_score(query, candidate, resources, base_weights)
             for candidate in clip_triples

@@ -1,3 +1,10 @@
+"""Optional helpers for the legacy PostgreSQL export path.
+
+The current IndexedVideo workflow reads a supplied JSONL file and never opens a
+database connection. Install the ``legacy-database`` extra only if the older
+generic clips/steps/pairwise export is deliberately being revived.
+"""
+
 from __future__ import annotations
 
 import os

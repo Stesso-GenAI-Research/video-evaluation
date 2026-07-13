@@ -21,6 +21,9 @@ def test_lexical_baseline_prefers_matching_clip_text():
 def _search_result(method, ids):
     return {
         "method": method,
+        "hybrid_alpha_lexical": (
+            1.0 if method == "lexical_fallback" else 0.5 if method == "hybrid" else None
+        ),
         "results": [
             {
                 "rank": rank,
@@ -73,6 +76,9 @@ def test_comparison_names_generated_reference_as_lexical_not_original(
     assert "original" not in result["reference"]["label"]
     assert result["reference"]["results"][0]["ranking_method"] == "lexical"
     assert result["challenger"]["results"][0]["ranking_method"] == "hybrid"
+    assert result["challenger"]["requested_method"] == "hybrid"
+    assert result["challenger"]["method"] == "hybrid"
+    assert result["challenger"]["effective_hybrid_alpha_lexical"] == 0.5
     assert result["set_difference"]["overlap_clip_ids"] == ["b"]
     assert result["set_difference"]["jaccard"] == 1 / 3
     assert result["quality_claim"] is False
@@ -134,6 +140,8 @@ def test_comparison_does_not_turn_zero_score_ties_into_arbitrary_results(
     monkeypatch.setattr(
         "action_semantics.retrieval.comparison.rank_indexed_clips",
         lambda **kwargs: {
+            "method": kwargs["method"],
+            "hybrid_alpha_lexical": 0.5 if kwargs["method"] == "hybrid" else None,
             "results": [
                 {"clip_id": "a", "score": 0.0},
                 {"clip_id": "b", "score": 0.0},

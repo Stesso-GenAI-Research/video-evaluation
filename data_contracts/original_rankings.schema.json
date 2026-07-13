@@ -20,11 +20,26 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["clip_id", "rank"],
+        "required": ["rank"],
+        "anyOf": [
+          {"required": ["clip_id"]},
+          {"required": ["video_id", "start_seconds", "end_seconds"]}
+        ],
         "properties": {
           "clip_id": {
             "type": "string",
             "minLength": 1
+          },
+          "video_id": {
+            "type": ["string", "integer"]
+          },
+          "start_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "end_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0
           },
           "rank": {
             "type": "integer",

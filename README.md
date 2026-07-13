@@ -119,6 +119,8 @@ Examples from the current index are encouraging at a qualitative level:
 - `remove old faucet` returns `Remove Faucet Stem` and `Remove Faucet Handle`
   first.
 - `paint wall` returns `Prepare and Paint Closet Walls` first.
+- `paint wall with primer` returns the same clip with a supply-context match of
+  1.0, showing that the parsed supply inventory is used by search.
 - `tighten screw with screwdriver` returns `Tighten the Set Screws` first.
 
 These examples prove that search runs. They do not prove overall accuracy.
@@ -186,20 +188,20 @@ A target must receive a positive score to receive a rank. If several clips have
 the exact same score, the metric averages over their possible tied positions;
 it does not let alphabetical clip IDs decide whether the answer is correct.
 This matters because the structured method produced a positive target score
-for only 73.6% of queries and tied the target with another clip on 46.1% of all
+for only 73.6% of queries and tied the target with another clip on 45.7% of all
 queries. That is useful failure information, not something to hide with an
 arbitrary tie-break.
 
 | Whole-corpus method | Hit@1 | Hit@3 | Hit@10 | MRR |
 |---|---:|---:|---:|---:|
 | Lexical TF-IDF | 63.2% | 85.5% | 93.3% | 0.749 |
-| Structured action | 26.3% | 36.6% | 47.5% | 0.336 |
-| 50/50 hybrid | 50.4% | 61.3% | 67.7% | 0.574 |
+| Structured action | 26.4% | 36.3% | 47.1% | 0.335 |
+| 50/50 hybrid | 50.6% | 61.5% | 68.0% | 0.577 |
 
 The honest finding is that structured-only retrieval is currently much weaker
 than ordinary text search. The 50/50 hybrid is also worse globally. Its Hit@1
-is 12.8 percentage points below TF-IDF, and the video-cluster bootstrap 95%
-confidence interval is approximately -18.8 to -7.0 points.
+is 12.6 percentage points below TF-IDF, and the video-cluster bootstrap 95%
+confidence interval is approximately -18.4 to -6.9 points.
 
 I also ran a topically controlled within-video reranking task. It has a smaller
 candidate set, but the alternatives come from the same source video:
@@ -207,14 +209,14 @@ candidate set, but the alternatives come from the same source video:
 | Within-video method | Hit@1 | Hit@3 | MRR |
 |---|---:|---:|---:|
 | Lexical TF-IDF | 72.7% | 92.9% | 0.834 |
-| Structured action | 50.0% | 68.4% | 0.595 |
-| 50/50 hybrid | 72.3% | 92.5% | 0.830 |
+| Structured action | 50.4% | 68.5% | 0.597 |
+| 50/50 hybrid | 72.7% | 92.5% | 0.833 |
 
-The observed hybrid Hit@1 is 0.4 points below lexical. The 95% interval for the
-difference is about -5.8 to +5.0 points. That interval allows both modest harm
-and modest benefit, so this experiment detected no reliable difference; it did
-not prove that the methods are equivalent. Within-topic reranking is still the
-more promising place to continue testing action features.
+The observed hybrid and lexical Hit@1 values are equal. The 95% interval for
+the difference is about -4.9 to +5.4 points. That interval allows both modest
+harm and modest benefit, so this experiment detected no reliable difference;
+it did not prove that the methods are equivalent. Within-topic reranking is
+still the more promising place to continue testing action features.
 
 This benchmark uses a paired field as weak ground truth. It is useful for
 development, but another clip could also be a valid answer. Only human review
@@ -258,10 +260,17 @@ Then run:
 ```
 
 Each row must contain the same number of original results as `--top-k` (three by
-default). The command validates all IDs and ranks before searching, writes neutral overlap
-statistics, and creates `batch-comparison/blind_review.csv`. The worksheet hides
-which system produced set A or B so a reviewer can judge action, object, tool,
-and overall relevance without seeing the method name.
+default). If the old system does not have canonical IDs, each match may instead
+contain `video_id`, `start_seconds`, and `end_seconds`; the command resolves the
+timestamp to a canonical segment. It validates all references and ranks before
+searching, writes neutral overlap statistics, and creates
+`batch-comparison/blind_review.csv`. The worksheet hides which system produced
+set A or B so a reviewer can judge action, object, tool, and overall relevance
+without seeing the method name.
+
+Re-running the command cannot erase a worksheet that already contains human
+labels or notes. New artifacts receive a `.generated` filename so the completed
+review and its matching hidden ranking key stay together.
 
 After filling the judgment columns with `yes` or `no`, run:
 
@@ -288,14 +297,18 @@ The exact input contract is in
 - One-query comparison no longer makes circular improvement claims.
 - Batch comparison accepts real original rankings and produces a blind review
   worksheet.
+- Original results can be supplied as canonical IDs or source video/timestamp
+  intervals, and batch queries reuse one loaded lexical/structured index.
+- Standalone commands rebuild when the source, extraction code, spaCy/model
+  versions, scorer version, or generated artifact hashes no longer match.
 - Completed blind worksheets can be scored without revealing A/B assignments
-  during labeling.
+  during labeling, and reruns preserve existing human work.
 - The direct-title and exact-phrase controlled benchmark reports category
   results, score coverage, tie-aware metrics, and paired 95% confidence
   intervals.
 - Retrieval artifacts record the exact input hashes, model, scorer version,
   field policy, and hybrid weight needed to reproduce a run.
-- The automated suite currently has 55 passing tests and Ruff is clean.
+- The automated suite currently has 59 passing tests and Ruff is clean.
 
 ## What I need next
 

@@ -41,9 +41,22 @@ def _write_retrieval_resources(month1_dir: Path, month2_dir: Path) -> None:
         path.write_text(f'{{"artifact":"{path.name}"}}\n', encoding="utf-8")
 
 
+def _patch_search_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeTfidfIndex:
+        @staticmethod
+        def from_clips(_: object) -> object:
+            return object()
+
+    monkeypatch.setattr(batch_comparison, "TfidfIndex", FakeTfidfIndex)
+    monkeypatch.setattr(
+        batch_comparison, "resources_from_files", lambda *_: object()
+    )
+
+
 def _make_scoring_artifacts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> dict[str, Path]:
+    _patch_search_runtime(monkeypatch)
     _write_retrieval_resources(tmp_path / "month1", tmp_path / "month2")
     clips_path = tmp_path / "score-clips.jsonl"
     _write_jsonl(
@@ -142,6 +155,7 @@ def test_run_batch_comparison_writes_neutral_and_blinded_artifacts(
         return {"results": [{"clip_id": clip_id} for clip_id in ids]}
 
     monkeypatch.setattr(batch_comparison, "rank_indexed_clips", fake_rank)
+    _patch_search_runtime(monkeypatch)
     _write_retrieval_resources(tmp_path / "month1", tmp_path / "month2")
     first = batch_comparison.run_batch_comparison(
         comparisons_jsonl=input_path,
@@ -170,6 +184,9 @@ def test_run_batch_comparison_writes_neutral_and_blinded_artifacts(
     assert calls[0]["method"] == "hybrid"
     assert calls[0]["top_k"] == 2
     assert calls[0]["hybrid_alpha"] == 0.4
+    assert calls[0]["preloaded_clips"] is calls[1]["preloaded_clips"]
+    assert calls[0]["preloaded_tfidf"] is calls[1]["preloaded_tfidf"]
+    assert calls[0]["preloaded_resources"] is calls[1]["preloaded_resources"]
 
     rankings = [json.loads(line) for line in first["rankings"].read_text().splitlines()]
     assert [row["step_id"] for row in rankings] == ["step-1", "step-2"]
@@ -188,6 +205,7 @@ def test_run_batch_comparison_writes_neutral_and_blinded_artifacts(
         "requested_top_k": 2,
         "hybrid_alpha_lexical": 0.4,
         "spacy_model": "test-model",
+        "timestamp_tolerance_seconds": 0.05,
     }
     assert rankings[0]["provenance"]["structured_scorer"] == (
         STRUCTURED_SCORER_VERSION
@@ -286,7 +304,7 @@ def test_batch_rerun_preserves_a_completed_review(
                     ],
                 }
             ],
-            "duplicate clip_id",
+            "duplicate result references",
         ),
         (
             [
@@ -372,7 +390,7 @@ def test_batch_comparison_rejects_unknown_original_clip_before_search(
         raise AssertionError("search must not run when an original ID is unknown")
 
     monkeypatch.setattr(batch_comparison, "rank_indexed_clips", should_not_search)
-    with pytest.raises(ValueError, match="not in the indexed corpus"):
+    with pytest.raises(ValueError, match="unknown canonical clip_id"):
         batch_comparison.run_batch_comparison(
             comparisons_jsonl=input_path,
             clips_jsonl=clips_path,
@@ -382,6 +400,61 @@ def test_batch_comparison_rejects_unknown_original_clip_before_search(
             spacy_model="test-model",
         )
     assert not (tmp_path / "output").exists()
+
+
+def test_batch_comparison_resolves_video_timestamp_references(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clips_path = tmp_path / "clips.jsonl"
+    _write_jsonl(clips_path, [_clip("canonical-a", "video-1")])
+    input_path = tmp_path / "timestamp-input.jsonl"
+    _write_jsonl(
+        input_path,
+        [
+            {
+                "step_id": "step-1",
+                "query": "remove fixture",
+                "original_matches": [
+                    {
+                        "video_id": "video-1",
+                        "start_seconds": 10.01,
+                        "end_seconds": 20.01,
+                        "rank": 1,
+                    }
+                ],
+            }
+        ],
+    )
+    _write_retrieval_resources(tmp_path / "month1", tmp_path / "month2")
+    monkeypatch.setattr(
+        batch_comparison,
+        "rank_indexed_clips",
+        lambda **_: {"results": [{"clip_id": "canonical-a"}]},
+    )
+    _patch_search_runtime(monkeypatch)
+
+    paths = batch_comparison.run_batch_comparison(
+        comparisons_jsonl=input_path,
+        clips_jsonl=clips_path,
+        month1_dir=tmp_path / "month1",
+        month2_dir=tmp_path / "month2",
+        output_dir=tmp_path / "output",
+        spacy_model="test-model",
+        top_k=1,
+        timestamp_tolerance_seconds=0.02,
+    )
+
+    ranking = json.loads(paths["rankings"].read_text(encoding="utf-8").splitlines()[0])
+    assert ranking["original_matches"][0]["clip_id"] == "canonical-a"
+    assert ranking["original_matches"][0]["input_reference"] == {
+        "video_id": "video-1",
+        "start_seconds": 10.01,
+        "end_seconds": 20.01,
+    }
+    summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+    assert summary["coverage"]["original_reference_resolution_counts"] == {
+        "video_timestamp": 1
+    }
 
 
 def test_batch_comparison_requires_same_top_k_for_original_and_challenger(

@@ -40,19 +40,19 @@ development test, not a final held-out-video evaluation.
 | Method | Hit@1 | Hit@3 | Hit@10 | MRR |
 |---|---:|---:|---:|---:|
 | Lexical TF-IDF | 63.2% | 85.5% | 93.3% | 0.749 |
-| Structured action | 26.3% | 36.6% | 47.5% | 0.336 |
-| 50/50 hybrid | 50.4% | 61.3% | 67.7% | 0.574 |
+| Structured action | 26.4% | 36.3% | 47.1% | 0.335 |
+| 50/50 hybrid | 50.6% | 61.5% | 68.0% | 0.577 |
 
 Structured action matching is not yet competitive for whole-corpus retrieval.
-Within a single source video, lexical Hit@1 is 72.7% and hybrid Hit@1 is 72.3%.
-The paired confidence interval for the difference is approximately -5.8 to
-+5.0 points. This is a useful direction to study, but not evidence that hybrid
+Within a single source video, lexical and hybrid Hit@1 are both 72.7%. The
+paired confidence interval for the difference is approximately -4.9 to +5.4
+points. This is a useful direction to study, but not evidence that hybrid
 search is better.
 
 These results require a positive score before a target can receive a rank. Exact
 score ties receive expected rather than clip-ID-based credit. The structured
 method has positive target evidence on 73.6% of queries and a positive target
-tie on 46.1%, so coverage and coarse ties are major problems to improve.
+tie on 45.7%, so coverage and coarse ties are major problems to improve.
 
 ## Data that is genuinely missing
 

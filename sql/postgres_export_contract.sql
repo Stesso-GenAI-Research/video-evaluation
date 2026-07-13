@@ -1,6 +1,8 @@
 -- Project 1 PostgreSQL export guide
 --
--- This file is a guide for making the three JSONL files needed by the Python pipeline.
+-- LEGACY/OPTIONAL: the current IndexedVideo search pipeline does not use this file or
+-- connect to PostgreSQL. This is a guide for recreating the older dense/pairwise path.
+-- It describes three generic JSONL files used only by that compatibility pipeline.
 -- It is not meant to be run blindly. Check the real table names and column names against
 -- the Stesso TypeScript models before using these query patterns.
 --
