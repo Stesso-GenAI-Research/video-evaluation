@@ -114,10 +114,6 @@ The current sample contains video clips, but it does not contain:
 
 Without those three connected pieces, there is no fair search experiment to run. Creating fake queries, labels, or vectors would produce a meaningless accuracy number.
 
-## The data I need next
-
-I need to request three connected exports from the private database.
-
 ### 1. Project steps
 
 Each step should include:
