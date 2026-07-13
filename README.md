@@ -102,7 +102,7 @@ project1_outputs/indexed-video-sample/quality/manual_review_results.json
 
 This tells me how often the extracted actions, objects, and tools are actually correct in the reviewed sample.
 
-## What I have not proven
+## Unproven (for now)
 
 I have not yet shown that structured action matching improves video search.
 
