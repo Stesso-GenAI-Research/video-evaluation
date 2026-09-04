@@ -12,7 +12,7 @@ COMMAND="${1:-all}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|compare-batch|score-review|benchmark|review|all]
+Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|compare-batch|evaluate-pairs|score-review|benchmark|review|all]
 
   setup   Create a Python 3.11-3.13 virtual environment and install dependencies.
   test    Compile the project, run pytest, run Ruff, and show CLI help.
@@ -21,6 +21,7 @@ Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|c
   search  Search clips; extra flags such as --method and --top-k are forwarded.
   compare Diff an explicit old/lexical set against structured or hybrid search.
   compare-batch  Compare a JSONL file of real original rankings and make a blind review CSV.
+  evaluate-pairs Score already-judged A/B clips with the frozen Step 1 evaluation.
   score-review   Score the completed batch-comparison blind review worksheet.
   benchmark Run the field-held-out lexical/structured/hybrid experiment.
   review  Summarize the human labels added to manual_review_sample.csv.
@@ -218,6 +219,11 @@ benchmark_sample() {
   echo "Benchmark summary: $SAMPLE_OUTPUT_DIR/benchmark/benchmark_summary.json"
 }
 
+evaluate_pairs() {
+  ensure_environment
+  "$VENV_DIR/bin/action-semantics" evaluate-pairs "${@:2}"
+}
+
 case "$COMMAND" in
   setup) setup ;;
   test) run_tests ;;
@@ -225,6 +231,7 @@ case "$COMMAND" in
   search) search_sample "$@" ;;
   compare) compare_sample "$@" ;;
   compare-batch) compare_batch_sample "$@" ;;
+  evaluate-pairs) evaluate_pairs "$@" ;;
   score-review) score_batch_review_sample "$@" ;;
   review) summarize_review ;;
   all)

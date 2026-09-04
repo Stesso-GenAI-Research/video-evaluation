@@ -61,6 +61,74 @@ def bootstrap_ci(values: list[float], *, seed: int = 1729, draws: int = 5000, co
     }
 
 
+def clustered_bootstrap_mean_ci(
+    values: list[float],
+    cluster_ids: list[str],
+    *,
+    seed: int = 1729,
+    draws: int = 5000,
+    confidence: float = 0.95,
+    cluster_unit: str = "step_id",
+) -> dict[str, Any]:
+    """Estimate a row-weighted mean CI by resampling whole clusters.
+
+    Each bootstrap draw samples the sorted cluster IDs with replacement and
+    includes every row belonging to each sampled cluster. Cluster sorting makes
+    a fixed seed reproducible regardless of the clusters' first-seen order.
+    """
+    if len(values) != len(cluster_ids):
+        raise ValueError("Values and cluster IDs must have equal lengths.")
+    if draws < 1:
+        raise ValueError("Bootstrap draws must be at least 1.")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("Bootstrap confidence must be between 0 and 1.")
+
+    grouped: dict[str, list[int]] = defaultdict(list)
+    for row_index, cluster_id in enumerate(cluster_ids):
+        grouped[cluster_id].append(row_index)
+    sorted_cluster_ids = sorted(grouped)
+
+    result: dict[str, Any] = {
+        "n": len(values),
+        "cluster_count": len(sorted_cluster_ids),
+        "mean": None,
+        "lower": None,
+        "upper": None,
+        "confidence": confidence,
+        "draws": draws,
+        "seed": seed,
+        "cluster_unit": cluster_unit,
+    }
+    if not values:
+        return result
+
+    rng = np.random.default_rng(seed)
+    array = np.asarray(values, dtype=float)
+    means = np.empty(draws, dtype=float)
+    for draw_index in range(draws):
+        sampled_clusters = rng.choice(
+            sorted_cluster_ids,
+            size=len(sorted_cluster_ids),
+            replace=True,
+        )
+        sampled_indices = [
+            row_index
+            for cluster_id in sampled_clusters
+            for row_index in grouped[str(cluster_id)]
+        ]
+        means[draw_index] = np.mean(array[sampled_indices])
+
+    alpha = 1.0 - confidence
+    result.update(
+        {
+            "mean": float(np.mean(array)),
+            "lower": float(np.quantile(means, alpha / 2.0)),
+            "upper": float(np.quantile(means, 1.0 - alpha / 2.0)),
+        }
+    )
+    return result
+
+
 def pairwise_accuracy_with_ci(rows: list[PairwiseEvaluationRow], *, seed: int = 1729) -> dict[str, Any]:
     values: list[float] = []
     for row in rows:

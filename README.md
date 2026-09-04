@@ -28,8 +28,9 @@ The repository compares three methods:
 | Search the clips | Working with lexical, structured, and hybrid ranking |
 | Compare two result lists | Working for one query; batch mode is ready for supplied old results |
 | Make a blinded review sheet | Working and protected from accidental overwrite |
+| Evaluate already-judged A/B pairs | Working; frozen direct scoring and step-clustered intervals are ready for W25 |
 | Run an automatic benchmark | Working as a development test |
-| Prove the new search is better | **Not complete; human judgments are still needed** |
+| Prove the new search is better | **Not complete; the real W25 preference export is still needed** |
 
 This is a local research pipeline, not a deployed website or search API. It
 does, however, provide the functional search and comparison tools needed to run
@@ -90,20 +91,16 @@ are already about the same topic than for searching the entire corpus alone.
 
 ## What comes next
 
-The next milestone is the real old-versus-new comparison. I need a batch of
-project step queries and the existing system's original top three timestamped
-clips. The pipeline can then generate new results, hide which system produced
-each set, and create a worksheet for human relevance judgments. That evidence
-will let us calculate Precision@3 and decide whether either system is actually
-better.
-
-More copies of the same JSONL format are useful for scale testing, but they are
-not the main blocker. The missing evidence is the old rankings and human labels.
+The immediate milestone is the frozen pairwise-preference evaluation on the
+real W25 export. The command and contracts are ready; the remaining external
+input is the indexed videos, project steps, and already-observed A/B judgments.
+Synthetic fixtures verify the machinery but are not research evidence.
 
 ## Documentation
 
 - [How the system works](docs/how-it-works.md)
 - [Running the pipeline and finding its outputs](docs/running-the-pipeline.md)
+- [Pairwise preference evaluation (Project 1, Step 1)](docs/pairwise-preference-evaluation.md)
 - [Experiments, findings, missing data, and next steps](docs/experiments-and-results.md)
 - [Current verification record](docs/verification.md)
-- [Input format for original search rankings](data_contracts/README.md)
+- [Input data contracts](data_contracts/README.md)

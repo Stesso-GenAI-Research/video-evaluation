@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from action_semantics.io_utils import sha256_file
-from action_semantics.retrieval.lexical import PRODUCTION_CANDIDATE_FIELDS
+from action_semantics.retrieval.lexical import (
+    PRODUCTION_CANDIDATE_FIELDS,
+    PRODUCTION_TFIDF_SETTINGS,
+)
 from action_semantics.retrieval.scorers import STRUCTURED_SCORER_VERSION
 
 
@@ -48,6 +51,8 @@ def build_retrieval_provenance(
         "spacy_model_version": installed_version(spacy_model.replace("_", "-")),
         "structured_scorer": STRUCTURED_SCORER_VERSION,
         "production_lexical_fields": PRODUCTION_CANDIDATE_FIELDS,
+        "production_tfidf_settings": PRODUCTION_TFIDF_SETTINGS,
+        "scikit_learn_version": installed_version("scikit-learn"),
         "taxonomy_used_for_ranking": False,
         "taxonomy_used_for_diagnostics": True,
     }

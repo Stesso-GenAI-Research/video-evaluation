@@ -48,6 +48,7 @@ review worksheet. Those activities require a query or a human decision.
 | `search` | Search the canonical clips with one of the three methods. |
 | `compare` | Describe differences between two rankings for one query. |
 | `compare-batch` | Compare many supplied old rankings and make a blind worksheet. |
+| `evaluate-pairs` | Directly score already-judged A/B pairs for frozen Step 1. |
 | `score-review` | Score a completed old-versus-new worksheet. |
 | `benchmark` | Run the automatic field-pair development benchmark. |
 | `review` | Summarize labels in the extraction-quality worksheet. |
@@ -135,6 +136,28 @@ This validates the full input before searching, loads the indexes once for the
 batch, generates challenger results, and writes a pooled worksheet in a hidden
 A/B order. The detailed research procedure is in
 [Experiments and results](experiments-and-results.md#the-real-old-versus-new-experiment).
+
+## Evaluating already-judged pairs
+
+The Step 1 preference evaluation is separate from `compare-batch`: it accepts
+an A/B decision that already exists and scores those two clips directly. It
+does not retrieve a challenger list. Run it against the nested W25 export with:
+
+```bash
+./scripts/run_local_pipeline.sh evaluate-pairs \
+  --index data/indexed-videos-w25.jsonl \
+  --steps data/steps-w25.jsonl \
+  --pairs data/pairwise-w25.jsonl \
+  --output project1_outputs/w25/step1 \
+  --seed 42
+```
+
+The command writes `pair_scores.jsonl`, `summary.json`, `summary.md`,
+`validation_report.json`, and `manifest.json`. Its scoring configuration is
+frozen; only the bootstrap seed and number of bootstrap iterations are run
+controls. See the dedicated
+[pairwise-preference guide](pairwise-preference-evaluation.md) for the current
+contracts, built-index form, resolution policy, and interpretation.
 
 ## Completing a blinded review
 

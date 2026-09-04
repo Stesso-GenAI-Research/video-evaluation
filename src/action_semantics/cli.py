@@ -19,6 +19,7 @@ from .retrieval.batch_comparison import run_batch_comparison, score_batch_review
 from .retrieval.experiments import run_month3 as run_month3_impl
 from .retrieval.comparison import compare_result_sets, write_comparison_results
 from .retrieval.benchmark import run_field_heldout_benchmark
+from .retrieval.preference_evaluation import run_preference_evaluation
 from .retrieval.search import rank_indexed_clips, write_search_results
 from .sample_analysis import run_indexed_video_analysis as run_indexed_video_analysis_impl
 from .verification import verify_output_repository, verify_structured_analysis
@@ -365,6 +366,39 @@ def compare_batch(
     )
     info(f"Batch comparison complete. Summary written to {paths['summary']}")
     info(f"Blind review worksheet written to {paths['blind_review']}")
+
+
+@app.command("evaluate-pairs")
+def evaluate_pairs(
+    index: Annotated[
+        Path,
+        typer.Option("--index", exists=True, readable=True),
+    ],
+    steps: Annotated[
+        Path,
+        typer.Option("--steps", exists=True, file_okay=True, dir_okay=False, readable=True),
+    ],
+    pairs: Annotated[
+        Path,
+        typer.Option("--pairs", exists=True, file_okay=True, dir_okay=False, readable=True),
+    ],
+    output: Annotated[Path, typer.Option("--output")],
+    seed: Annotated[int, typer.Option("--seed")] = DEFAULT_RANDOM_SEED,
+    bootstrap_iterations: Annotated[
+        int, typer.Option("--bootstrap-iterations", min=1)
+    ] = 5000,
+) -> None:
+    """Score already-judged A/B pairs with the frozen three-method setup."""
+    paths = run_preference_evaluation(
+        index=index,
+        steps_jsonl=steps,
+        pairs_jsonl=pairs,
+        output_dir=output,
+        seed=seed,
+        bootstrap_iterations=bootstrap_iterations,
+    )
+    info(f"Pairwise preference evaluation complete. Summary: {paths['summary']}")
+    info(f"Pair-level scores: {paths['pair_scores']}")
 
 
 @app.command("score-review")

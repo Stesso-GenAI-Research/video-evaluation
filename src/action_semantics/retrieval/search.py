@@ -11,6 +11,7 @@ from action_semantics.io_utils import read_clips, sha256_file
 from action_semantics.models import TextSegment
 from action_semantics.retrieval.lexical import (
     PRODUCTION_CANDIDATE_FIELDS,
+    PRODUCTION_TFIDF_SETTINGS,
     TfidfIndex,
     tfidf_scores,
 )
@@ -18,7 +19,7 @@ from action_semantics.retrieval.scorers import (
     STRUCTURED_SCORER_VERSION,
     StructuredResources,
     resources_from_files,
-    structured_score_for_triples,
+    score_query_clip_ids,
 )
 from action_semantics.text import normalize_term
 
@@ -49,13 +50,26 @@ def imperative_fallback_text(query_text: str, known_verbs: set[str]) -> str | No
     return f"{words[0]} the {' '.join(words[1:])}"
 
 
-def _imperative_fallback_triples(
+def parse_query_triples(
     query_text: str,
     spacy_model: str,
-    known_verbs: set[str],
-) -> list[Any]:
+    *,
+    known_verbs: set[str] | None = None,
+) -> tuple[list[Any], str | None]:
+    """Parse a production query and optionally apply its frozen imperative retry.
+
+    The second return value is the rewritten query when the retry succeeded.
+    Keeping this operation public lets direct pair scoring use exactly the same
+    parser behavior as corpus search.
+    """
+    triples = _query_triples(query_text, spacy_model)
+    if triples or known_verbs is None:
+        return triples, None
     rewritten = imperative_fallback_text(query_text, known_verbs)
-    return _query_triples(rewritten, spacy_model) if rewritten else []
+    if rewritten is None:
+        return [], None
+    fallback_triples = _query_triples(rewritten, spacy_model)
+    return fallback_triples, rewritten if fallback_triples else None
 
 
 def _result_metadata(clip: Any) -> dict[str, Any]:
@@ -120,21 +134,20 @@ def rank_indexed_clips(
         if preloaded_tfidf is not None
         else tfidf_scores(query_text, clips)
     )
-    query_triples = _query_triples(query_text, spacy_model)
     warnings: list[str] = []
     base: StructuredResources | None = preloaded_resources
-    if not query_triples and method in {"structured", "hybrid"}:
-        base = resources_from_files(month1_dir, month2_dir)
-        query_triples = _imperative_fallback_triples(
-            query_text,
-            spacy_model,
-            {row.action_lemma for row in base.verbnet if row.has_mapping},
+    known_verbs: set[str] | None = None
+    if method in {"structured", "hybrid"}:
+        base = base or resources_from_files(month1_dir, month2_dir)
+        known_verbs = {row.action_lemma for row in base.verbnet if row.has_mapping}
+    query_triples, fallback_text = parse_query_triples(
+        query_text, spacy_model, known_verbs=known_verbs
+    )
+    if fallback_text is not None:
+        warnings.append(
+            "The parser treated the terse query as a noun phrase, so search retried "
+            "it as an imperative instruction."
         )
-        if query_triples:
-            warnings.append(
-                "The parser treated the terse query as a noun phrase, so search retried "
-                "it as an imperative instruction."
-            )
     if not query_triples:
         if method == "structured":
             raise ValueError(
@@ -147,42 +160,23 @@ def rank_indexed_clips(
                 "Lexical ranking was used instead."
             )
 
-    structured: dict[str, dict[str, float]] = {}
-    if query_triples and method in {"structured", "hybrid"}:
-        base = base or resources_from_files(month1_dir, month2_dir)
-        structured = {
-            clip.clip_id: structured_score_for_triples(
-                query_triples, clip.clip_id, base
-            )
-            for clip in clips
-        }
-
-    zero_signals = {
-        "structured_score": 0.0,
-        "action_match": 0.0,
-        "exact_action_match": 0.0,
-        "object_match": 0.0,
-        "context_match": 0.0,
-        "tool_match": 0.0,
-        "supply_match": 0.0,
-        "scope_match": 0.0,
-        "verbnet_match": 0.0,
-        "framenet_match": 0.0,
-        "taxonomy_match": 0.0,
-    }
+    # The shared helper performs direct clip scoring; ranking and top-k
+    # selection remain concerns of this search function.
+    direct_scores = score_query_clip_ids(
+        query_triples=(
+            query_triples if method in {"structured", "hybrid"} else []
+        ),
+        clip_ids=[clip.clip_id for clip in clips],
+        lexical_scores=lexical,
+        resources=base if method in {"structured", "hybrid"} else None,
+        hybrid_alpha=hybrid_alpha,
+    )
     scored: list[dict[str, Any]] = []
     for clip in clips:
-        parts = structured.get(clip.clip_id, zero_signals)
-        lexical_score = lexical[clip.clip_id]
-        if method == "lexical" or not query_triples:
-            score = lexical_score
-        elif method == "structured":
-            score = parts["structured_score"]
-        else:
-            score = (
-                hybrid_alpha * lexical_score
-                + (1.0 - hybrid_alpha) * parts["structured_score"]
-            )
+        direct = direct_scores[clip.clip_id]
+        parts = direct["structured_signals"]
+        lexical_score = direct["lexical_score"]
+        score = direct[f"{method}_score"]
         scored.append(
             {
                 **_result_metadata(clip),
@@ -279,6 +273,7 @@ def rank_indexed_clips(
             "canonical_schema": "indexed-video-segments-v2",
             "canonical_clip_count": len(clips),
             "production_lexical_fields": PRODUCTION_CANDIDATE_FIELDS,
+            "production_tfidf_settings": PRODUCTION_TFIDF_SETTINGS,
             "structured_scorer": STRUCTURED_SCORER_VERSION,
             "taxonomy_used_for_ranking": False,
         },

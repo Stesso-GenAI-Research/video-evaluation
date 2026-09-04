@@ -1,12 +1,61 @@
 # Data contracts
 
 A data contract describes the exact shape that an input file must have. These
-files use JSONL: each line is one complete JSON object, and a bad line causes
-validation to fail before an experiment starts.
+files use JSONL: each line is one complete JSON object. Commands validate input
+before using it; the preference evaluator records row-level failures in its
+validation report, while older experiment commands fail fast.
 
 The main search pipeline reads the nested `indexed-videos-*.jsonl` export
 directly. The most important extra contract is the original-ranking input used
 for the real comparison experiment.
+
+Project 1 Step 1 has separate current contracts for evaluating preferences that
+have already been judged. They intentionally do not replace the older generic
+pairwise files described at the end of this page.
+
+## `preference_pairs.schema.json`
+
+This is the current contract for one already-judged A/B clip comparison. The
+canonical fields are:
+
+- `comparison_id`: a nonempty identifier unique within the input;
+- `step_id`: the project step shared by both clips;
+- `clip_a` and `clip_b`: nested canonical-ID or timestamp references;
+- `winner_position`: exactly `A` or `B`;
+- `judge_provenance`: a nonempty description of the judgment source;
+- optional `judge_confidence`: a number from 0 through 1; and
+- optional `winner_clip_id`: an additional consistency check when the source
+  export records it.
+
+A pair using timestamp references looks like this:
+
+```json
+{"comparison_id":"comparison-1","step_id":"step-1","clip_a":{"video_id":"1451721","start_seconds":94.616,"end_seconds":118.3},"clip_b":{"video_id":"1451721","start_seconds":61.383,"end_seconds":79.466},"winner_position":"A","judge_provenance":"cascade","judge_confidence":0.91}
+```
+
+An exact canonical reference instead uses `{"clip_id":"..."}`. A reference
+may contain both forms; when it does, they must resolve to the same clip. The
+evaluator maps timestamps to the canonical index with a 0.05-second default
+tolerance and explicitly reports missing or ambiguous matches. It also rejects
+same-clip pairs and a supplied `winner_clip_id` that does not identify the
+resolved winner.
+
+The W25 source field names were not final when this contract was added. As a
+limited ingestion convenience, the loader also accepts `id` as an alias for
+`comparison_id`, and `winner` as an alias for `winner_position` only when its
+value is `A` or `B`. Output always uses the canonical names. Provenance is not
+inferred: `judge_provenance` remains required.
+
+## `preference_steps.schema.json`
+
+This is the current step-text contract for preference evaluation. Each row has
+either `id` (the expected W25 spelling) or `step_id`, plus `title`,
+`description`, `tools`, and `materials`. Tools and materials are arrays of
+strings. If both identifier spellings are supplied, they must agree.
+
+The evaluator normalizes either identifier spelling to `step_id`. Extra source
+metadata is retained at the contract boundary but is not used to adapt the
+fixed Step-1 query.
 
 ## `original_rankings.schema.json`
 
@@ -81,3 +130,6 @@ step. It requires `comparison_id`, `step_id`, `clip_a_id`, `clip_b_id`, and
 
 These three legacy schemas allow extra fields so a larger export can retain
 source metadata that the older experiment code does not use directly.
+They remain unchanged for compatibility. In particular,
+`pairwise.schema.json` uses flat `clip_a_id`/`clip_b_id` fields and is not the
+input contract for the new `evaluate-pairs` command.

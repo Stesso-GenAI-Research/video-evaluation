@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/action-semantics/preference-pairs.schema.json",
+  "title": "One judged clip preference for Project 1 Step 1",
+  "description": "A previously judged A/B comparison whose clips can be resolved against the canonical index.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "step_id",
+    "clip_a",
+    "clip_b",
+    "judge_provenance"
+  ],
+  "allOf": [
+    {
+      "anyOf": [
+        {"required": ["comparison_id"]},
+        {"required": ["id"]}
+      ]
+    },
+    {
+      "anyOf": [
+        {"required": ["winner_position"]},
+        {"required": ["winner"]}
+      ]
+    }
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Provisional W25 alias for comparison_id."
+    },
+    "comparison_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "step_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "clip_a": {
+      "$ref": "#/$defs/clipReference"
+    },
+    "clip_b": {
+      "$ref": "#/$defs/clipReference"
+    },
+    "winner_position": {
+      "type": "string",
+      "enum": ["A", "B"]
+    },
+    "winner": {
+      "type": "string",
+      "enum": ["A", "B"],
+      "description": "Provisional W25 alias for winner_position."
+    },
+    "winner_clip_id": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "judge_provenance": {
+      "type": "string",
+      "minLength": 1
+    },
+    "judge_confidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    }
+  },
+  "$defs": {
+    "clipReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["clip_id"],
+          "not": {
+            "anyOf": [
+              {"required": ["video_id"]},
+              {"required": ["start_seconds"]},
+              {"required": ["end_seconds"]}
+            ]
+          }
+        },
+        {
+          "required": ["video_id", "start_seconds", "end_seconds"]
+        }
+      ],
+      "properties": {
+        "clip_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "video_id": {
+          "type": ["string", "integer"],
+          "minLength": 1
+        },
+        "start_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    }
+  }
+}

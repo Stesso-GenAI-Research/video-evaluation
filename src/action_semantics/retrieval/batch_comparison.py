@@ -17,6 +17,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from action_semantics.io_utils import read_clips, sha256_file, write_csv, write_jsonl
+from action_semantics.retrieval.clip_resolution import (
+    DEFAULT_TIMESTAMP_TOLERANCE_SECONDS,
+    ClipReference,
+    ClipResolver,
+    clip_interval,
+)
 from action_semantics.retrieval.evaluation import bootstrap_ci
 from action_semantics.retrieval.lexical import TfidfIndex
 from action_semantics.retrieval.provenance import build_retrieval_provenance
@@ -32,61 +38,13 @@ _REVIEW_DIMENSIONS = ("overall_relevant", "action", "object", "tool")
 _BOOTSTRAP_DRAWS = 5000
 
 
-class OriginalMatchInput(BaseModel):
+class OriginalMatchInput(ClipReference):
     """One old result identified canonically or by source video timestamps."""
 
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    clip_id: str | None = None
-    video_id: str | int | None = None
-    start_seconds: float | int | None = None
-    end_seconds: float | int | None = None
     rank: int = Field(ge=1)
 
-    @field_validator("clip_id")
-    @classmethod
-    def clip_id_is_not_blank(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("clip_id must not be blank")
-        return value.strip() if value is not None else None
-
-    @field_validator("video_id")
-    @classmethod
-    def video_id_is_not_blank(cls, value: str | int | None) -> str | int | None:
-        if isinstance(value, str) and not value.strip():
-            raise ValueError("video_id must not be blank")
-        return value.strip() if isinstance(value, str) else value
-
-    @model_validator(mode="after")
-    def has_complete_reference(self) -> "OriginalMatchInput":
-        timestamp_values = (self.video_id, self.start_seconds, self.end_seconds)
-        has_any_timestamp = any(value is not None for value in timestamp_values)
-        has_all_timestamps = all(value is not None for value in timestamp_values)
-        if self.clip_id is None and not has_all_timestamps:
-            raise ValueError(
-                "provide clip_id or video_id + start_seconds + end_seconds"
-            )
-        if has_any_timestamp and not has_all_timestamps:
-            raise ValueError(
-                "video_id, start_seconds, and end_seconds must be supplied together"
-            )
-        if has_all_timestamps and float(self.start_seconds) < 0.0:
-            raise ValueError("start_seconds must be non-negative")
-        if has_all_timestamps and float(self.end_seconds) <= float(self.start_seconds):
-            raise ValueError("end_seconds must be greater than start_seconds")
-        return self
-
-    def reference_key(self) -> tuple[Any, ...]:
-        if self.clip_id is not None:
-            return ("clip_id", self.clip_id)
-        return (
-            "timestamp",
-            str(self.video_id),
-            float(self.start_seconds),
-            float(self.end_seconds),
-        )
-
     def reference_dict(self) -> dict[str, Any]:
+        """Keep the legacy batch artifact's normalized string video ID."""
         return {
             key: value
             for key, value in {
@@ -200,14 +158,8 @@ def _ranked_clip(clip: Any, rank: int) -> dict[str, Any]:
 
 
 def _clip_interval(clip: Any) -> tuple[float | None, float | None]:
-    metadata = clip.gemini_metadata.get("clip", {})
-    if not isinstance(metadata, dict):
-        return None, None
-    start = metadata.get("start_seconds")
-    end = metadata.get("end_seconds")
-    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
-        return None, None
-    return float(start), float(end)
+    """Compatibility wrapper for the former private interval helper."""
+    return clip_interval(clip)
 
 
 def _resolve_original_reference(
@@ -216,53 +168,21 @@ def _resolve_original_reference(
     clips_by_id: dict[str, Any],
     clips: list[Any],
     tolerance_seconds: float,
+    resolver: ClipResolver | None = None,
 ) -> tuple[str, str]:
-    """Resolve one supervisor result and report how it was matched."""
-    if match.clip_id is not None and match.clip_id in clips_by_id:
-        if match.video_id is not None:
-            clip = clips_by_id[match.clip_id]
-            start, end = _clip_interval(clip)
-            if (
-                str(clip.video_id) != str(match.video_id)
-                or start is None
-                or end is None
-                or abs(start - float(match.start_seconds)) > tolerance_seconds
-                or abs(end - float(match.end_seconds)) > tolerance_seconds
-            ):
-                raise ValueError(
-                    f"clip_id {match.clip_id!r} conflicts with its supplied video/timestamps"
-                )
-        return match.clip_id, "canonical_clip_id"
-
-    if match.video_id is None:
-        raise ValueError(f"unknown canonical clip_id: {match.clip_id!r}")
-    target_start = float(match.start_seconds)
-    target_end = float(match.end_seconds)
-    candidates: list[str] = []
-    for clip in clips:
-        if str(clip.video_id) != str(match.video_id):
-            continue
-        start, end = _clip_interval(clip)
-        if (
-            start is not None
-            and end is not None
-            and abs(start - target_start) <= tolerance_seconds
-            and abs(end - target_end) <= tolerance_seconds
-        ):
-            candidates.append(clip.clip_id)
-    if not candidates:
-        raise ValueError(
-            "no canonical clip matches "
-            f"video_id={match.video_id!r}, start={target_start}, end={target_end} "
-            f"within ±{tolerance_seconds} seconds"
-        )
-    if len(candidates) > 1:
-        raise ValueError(
-            "timestamp reference is ambiguous for "
-            f"video_id={match.video_id!r}, start={target_start}, end={target_end}: "
-            f"{sorted(candidates)}"
-        )
-    return candidates[0], "video_timestamp"
+    """Resolve one supervisor result and retain the former exception API."""
+    del clips_by_id  # Retained in the signature for private-call compatibility.
+    active_resolver = resolver or ClipResolver(
+        clips,
+        tolerance_seconds=tolerance_seconds,
+        allow_unknown_clip_id_timestamp_fallback=True,
+    )
+    result = active_resolver.resolve(match)
+    if not result.is_resolved:
+        raise ValueError(result.message)
+    if result.canonical_clip_id is None or result.resolution_method is None:
+        raise AssertionError("resolved clip reference lacks canonical resolution data")
+    return result.canonical_clip_id, result.resolution_method
 
 
 def _jaccard(left: list[str], right: list[str]) -> float:
@@ -283,7 +203,7 @@ def run_batch_comparison(
     challenger_method: ChallengerMethod = "hybrid",
     top_k: int = 3,
     hybrid_alpha: float = 0.5,
-    timestamp_tolerance_seconds: float = 0.05,
+    timestamp_tolerance_seconds: float = DEFAULT_TIMESTAMP_TOLERANCE_SECONDS,
 ) -> dict[str, Path]:
     """Compare supplied rankings with structured or hybrid top-k results.
 
@@ -305,6 +225,11 @@ def run_batch_comparison(
     clips_by_id = {clip.clip_id: clip for clip in clips}
     if len(clips_by_id) != len(clips):
         raise ValueError("clips_jsonl contains duplicate clip_id values")
+    clip_resolver = ClipResolver(
+        clips,
+        tolerance_seconds=timestamp_tolerance_seconds,
+        allow_unknown_clip_id_timestamp_fallback=True,
+    )
 
     resolved_original_ids: list[list[str]] = []
     resolution_methods: Counter[str] = Counter()
@@ -318,6 +243,7 @@ def run_batch_comparison(
                     clips_by_id=clips_by_id,
                     clips=clips,
                     tolerance_seconds=timestamp_tolerance_seconds,
+                    resolver=clip_resolver,
                 )
             except ValueError as exc:
                 resolution_errors.setdefault(row.step_id, []).append(str(exc))

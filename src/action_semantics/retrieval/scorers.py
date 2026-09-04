@@ -18,6 +18,19 @@ from action_semantics.retrieval.embeddings import mean_dense_score
 
 
 STRUCTURED_SCORER_VERSION = "aligned-action-object-context-v4"
+STRUCTURED_SIGNAL_NAMES = (
+    "structured_score",
+    "action_match",
+    "exact_action_match",
+    "verbnet_match",
+    "framenet_match",
+    "taxonomy_match",
+    "object_match",
+    "context_match",
+    "tool_match",
+    "supply_match",
+    "scope_match",
+)
 
 
 def jaccard(left: Iterable[str], right: Iterable[str]) -> float:
@@ -224,21 +237,8 @@ def structured_score_for_triples(
 ) -> dict[str, float]:
     """Score already-parsed query triples without rebuilding corpus lookups."""
     clip_triples = resources.triples_for("clip", clip_id)
-    metric_names = (
-        "structured_score",
-        "action_match",
-        "exact_action_match",
-        "verbnet_match",
-        "framenet_match",
-        "taxonomy_match",
-        "object_match",
-        "context_match",
-        "tool_match",
-        "supply_match",
-        "scope_match",
-    )
     if not query_triples or not clip_triples:
-        return {name: 0.0 for name in metric_names}
+        return {name: 0.0 for name in STRUCTURED_SIGNAL_NAMES}
 
     base_weights = weights or StructuredWeights()
     aligned: list[dict[str, float]] = []
@@ -260,8 +260,73 @@ def structured_score_for_triples(
         )
     return {
         name: float(sum(row[name] for row in aligned) / len(aligned))
-        for name in metric_names
+        for name in STRUCTURED_SIGNAL_NAMES
     }
+
+
+def combine_lexical_structured_score(
+    lexical_score: float,
+    structured_score: float,
+    *,
+    hybrid_alpha: float = 0.5,
+    structured_available: bool = True,
+) -> float:
+    """Apply the production hybrid rule to one lexical/structured score pair.
+
+    ``hybrid_alpha`` is the lexical share.  Production search falls back to
+    lexical-only scoring when a query has no parsed action; callers represent
+    that state with ``structured_available=False``.
+    """
+    if not 0.0 <= hybrid_alpha <= 1.0:
+        raise ValueError("hybrid_alpha must be between 0 and 1")
+    if not structured_available:
+        return float(lexical_score)
+    return float(
+        hybrid_alpha * lexical_score
+        + (1.0 - hybrid_alpha) * structured_score
+    )
+
+
+def score_query_clip_ids(
+    *,
+    query_triples: list[ActionTriple],
+    clip_ids: Iterable[str],
+    lexical_scores: dict[str, float],
+    resources: StructuredResources | None,
+    hybrid_alpha: float = 0.5,
+) -> dict[str, dict[str, Any]]:
+    """Directly score selected clips with the production three-method rules."""
+    if not 0.0 <= hybrid_alpha <= 1.0:
+        raise ValueError("hybrid_alpha must be between 0 and 1")
+    if query_triples and resources is None:
+        raise ValueError("Structured resources are required for parsed query triples")
+    structured_available = bool(query_triples)
+    output: dict[str, dict[str, Any]] = {}
+    for clip_id in clip_ids:
+        if clip_id not in lexical_scores:
+            raise ValueError(f"Missing lexical score for canonical clip {clip_id!r}")
+        parts = (
+            structured_score_for_triples(query_triples, clip_id, resources)
+            if structured_available and resources is not None
+            else {name: 0.0 for name in STRUCTURED_SIGNAL_NAMES}
+        )
+        lexical_score = float(lexical_scores[clip_id])
+        structured_score_value = float(parts["structured_score"])
+        output[clip_id] = {
+            "lexical_score": lexical_score,
+            "structured_score": structured_score_value,
+            "hybrid_score": combine_lexical_structured_score(
+                lexical_score,
+                structured_score_value,
+                hybrid_alpha=hybrid_alpha,
+                structured_available=structured_available,
+            ),
+            "effective_hybrid_alpha_lexical": (
+                hybrid_alpha if structured_available else 1.0
+            ),
+            "structured_signals": parts,
+        }
+    return output
 
 
 def score_step_clip(

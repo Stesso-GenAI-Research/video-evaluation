@@ -22,6 +22,11 @@ PRODUCTION_CANDIDATE_FIELDS = [
     "video.goal",
     "video.category",
 ]
+PRODUCTION_TFIDF_SETTINGS = {
+    "lowercase": True,
+    "ngram_range": (1, 2),
+    "sublinear_tf": True,
+}
 
 
 @dataclass(frozen=True)
@@ -42,9 +47,7 @@ class TfidfIndex:
         candidate_documents = documents or [production_candidate_text(clip) for clip in clips]
         if len(candidate_documents) != len(clips):
             raise ValueError("The number of TF-IDF documents must equal the number of clips.")
-        vectorizer = TfidfVectorizer(
-            lowercase=True, ngram_range=(1, 2), sublinear_tf=True
-        )
+        vectorizer = TfidfVectorizer(**PRODUCTION_TFIDF_SETTINGS)
         candidate_matrix = vectorizer.fit_transform(candidate_documents)
         return cls(
             clip_ids=[clip.clip_id for clip in clips],
