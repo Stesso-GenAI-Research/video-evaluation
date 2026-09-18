@@ -22,14 +22,16 @@ The repository compares three methods:
 
 | Part | Current state |
 |---|---|
-| Parse the private JSONL | Working on all 250 supplied videos |
-| Build a clean clip index | Working; 1,663 searchable timestamped clips |
+| Parse the private JSONL | Working on the supplied nested export |
+| Build a clean clip index | Working; canonical timestamped clips are deduplicated |
 | Extract action semantics | Working, with measured coverage and unmeasured precision |
 | Search the clips | Working with lexical, structured, and hybrid ranking |
 | Compare two result lists | Working for one query; batch mode is ready for supplied old results |
 | Make a blinded review sheet | Working and protected from accidental overwrite |
 | Evaluate already-judged A/B pairs | Working; frozen direct scoring and step-clustered intervals are ready for W25 |
 | Build controlled hard-negative development pairs | Working; metadata-derived labels are diagnostic only |
+| Build large score-independent contrast pairs | Working |
+| Inventory pairwise scorer disagreements | Working; descriptive case table with no tuning |
 | Run an automatic benchmark | Working as a development test |
 | Prove the new search is better | **Not complete; the real W25 preference export is still needed** |
 
@@ -71,39 +73,24 @@ Generated files are placed under
 `project1_outputs/indexed-video-sample/`. The `all` command does not run a human
 review or invent old search results; those steps require real experiment input.
 
-## What we have found so far
+## Current results and next experiment
 
-The automatic development benchmark uses clip names as queries and their paired
-descriptions, goals, tools, and supplies as candidate evidence. It is useful for
-debugging, but it is not a substitute for human relevance labels.
+The current development evidence favors lexical TF-IDF over structured and
+hybrid scoring. The primary frozen pairwise-preference experiment is ready but
+still requires the authentic W25 steps and already-observed A/B judgments.
+Constructed development pairs verify the full workflow but are not human
+preference evidence.
 
-| Whole-corpus method | Hit@1 | Hit@3 | MRR |
-|---|---:|---:|---:|
-| Lexical TF-IDF | 63.2% | 85.5% | 0.749 |
-| Structured action | 26.4% | 36.3% | 0.335 |
-| 50/50 hybrid | 50.6% | 61.5% | 0.577 |
-
-The honest result is that the current structured method does **not** beat
-TF-IDF over the whole corpus. It misses some actions and produces many tied
-scores. Within one source video, lexical and hybrid search both reached 72.7%
-Hit@1, but the uncertainty interval is too wide to claim that they are equal.
-This suggests that action features may be more useful for reranking clips that
-are already about the same topic than for searching the entire corpus alone.
-
-## What comes next
-
-The immediate milestone remains the frozen pairwise-preference evaluation on
-the real W25 export. A controlled hard-negative corpus can now exercise
-action/object disagreements and downstream error-analysis plumbing while that
-export is unavailable. Its labels are assigned from source metadata and are not
-human preference evidence. The remaining external input is the indexed videos,
-project steps, and already-observed A/B judgments.
+Current counts, result tables, exact commands, output paths, limitations, and
+the Stesso meeting update are maintained in the
+[project status, experiments, and execution guide](docs/stesso-project-update.md).
 
 ## Documentation
 
+- [Project status, experiments, and execution guide](docs/stesso-project-update.md)
 - [How the system works](docs/how-it-works.md)
 - [Running the pipeline and finding its outputs](docs/running-the-pipeline.md)
 - [Pairwise preference evaluation (Project 1, Step 1)](docs/pairwise-preference-evaluation.md)
-- [Experiments, findings, missing data, and next steps](docs/experiments-and-results.md)
+- [Experiment methodology and interpretation](docs/experiments-and-results.md)
 - [Current verification record](docs/verification.md)
 - [Input data contracts](data_contracts/README.md)

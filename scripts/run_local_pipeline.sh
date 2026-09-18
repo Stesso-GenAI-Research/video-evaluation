@@ -12,7 +12,7 @@ COMMAND="${1:-all}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|compare-batch|generate-synthetic-pairs|generate-controlled-pairs|evaluate-pairs|score-review|benchmark|review|all]
+Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|compare-batch|generate-synthetic-pairs|generate-controlled-pairs|generate-contrast-pairs|evaluate-pairs|analyze-pairs|score-review|benchmark|review|all]
 
   setup   Create a Python 3.11-3.13 virtual environment and install dependencies.
   test    Compile the project, run pytest, run Ruff, and show CLI help.
@@ -23,7 +23,9 @@ Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|c
   compare-batch  Compare a JSONL file of real original rankings and make a blind review CSV.
   generate-synthetic-pairs  Make target-derived development steps and A/B pseudo-labels.
   generate-controlled-pairs Make action/object-focused hard-negative development pairs.
+  generate-contrast-pairs   Make a large score-independent metadata-contrast corpus.
   evaluate-pairs Score already-judged A/B clips with the frozen Step 1 evaluation.
+  analyze-pairs  Build a descriptive diagnostic inventory from pair score rows.
   score-review   Score the completed batch-comparison blind review worksheet.
   benchmark Run the field-held-out lexical/structured/hybrid experiment.
   review  Summarize the human labels added to manual_review_sample.csv.
@@ -236,6 +238,16 @@ generate_controlled_pairs() {
   "$VENV_DIR/bin/action-semantics" generate-controlled-pairs "${@:2}"
 }
 
+generate_contrast_pairs() {
+  ensure_environment
+  "$VENV_DIR/bin/action-semantics" generate-contrast-pairs "${@:2}"
+}
+
+analyze_pairs() {
+  ensure_environment
+  "$VENV_DIR/bin/action-semantics" analyze-pairs "${@:2}"
+}
+
 case "$COMMAND" in
   setup) setup ;;
   test) run_tests ;;
@@ -245,7 +257,9 @@ case "$COMMAND" in
   compare-batch) compare_batch_sample "$@" ;;
   generate-synthetic-pairs) generate_synthetic_pairs "$@" ;;
   generate-controlled-pairs) generate_controlled_pairs "$@" ;;
+  generate-contrast-pairs) generate_contrast_pairs "$@" ;;
   evaluate-pairs) evaluate_pairs "$@" ;;
+  analyze-pairs) analyze_pairs "$@" ;;
   score-review) score_batch_review_sample "$@" ;;
   review) summarize_review ;;
   all)

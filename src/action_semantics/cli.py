@@ -8,9 +8,14 @@ from typing import Annotated
 import typer
 
 from .config import DEFAULT_RANDOM_SEED, DEFAULT_SPACY_MODEL, PipelineConfig
+from .contrast_preferences import (
+    DEFAULT_CONTRAST_STEP_COUNT,
+    generate_contrast_preferences,
+)
 from .indexed_videos import prepare_indexed_videos as prepare_indexed_videos_impl
 from .index_freshness import index_staleness_reasons
 from .logging_utils import info
+from .pair_diagnostics import analyze_pair_scores
 from .month1 import run_month1 as run_month1_impl
 from .month2 import run_month2 as run_month2_impl
 from .quality import require_nonempty_report, validate_jsonl_basic
@@ -23,6 +28,7 @@ from .retrieval.preference_evaluation import run_preference_evaluation
 from .retrieval.search import rank_indexed_clips, write_search_results
 from .sample_analysis import run_indexed_video_analysis as run_indexed_video_analysis_impl
 from .synthetic_preferences import (
+    DEFAULT_CONTROLLED_STEP_COUNT,
     generate_controlled_preferences,
     generate_synthetic_preferences,
 )
@@ -436,7 +442,9 @@ def generate_controlled_pairs(
         typer.Option("--index", exists=True, readable=True),
     ],
     output: Annotated[Path, typer.Option("--output")],
-    step_count: Annotated[int, typer.Option("--step-count", min=2)] = 100,
+    step_count: Annotated[
+        int, typer.Option("--step-count", min=2)
+    ] = DEFAULT_CONTROLLED_STEP_COUNT,
     seed: Annotated[int, typer.Option("--seed")] = DEFAULT_RANDOM_SEED,
     overwrite: Annotated[bool, typer.Option("--overwrite")] = False,
 ) -> None:
@@ -451,6 +459,55 @@ def generate_controlled_pairs(
     info(f"Controlled development steps written to {paths['steps']}")
     info(f"Controlled pairwise comparisons written to {paths['pairs']}")
     info(f"Readable pair audit written to {paths['audit']}")
+
+
+@app.command("generate-contrast-pairs")
+def generate_contrast_pairs(
+    index: Annotated[
+        Path,
+        typer.Option("--index", exists=True, readable=True),
+    ],
+    output: Annotated[Path, typer.Option("--output")],
+    step_count: Annotated[
+        int, typer.Option("--step-count", min=2)
+    ] = DEFAULT_CONTRAST_STEP_COUNT,
+    seed: Annotated[int, typer.Option("--seed")] = DEFAULT_RANDOM_SEED,
+    overwrite: Annotated[bool, typer.Option("--overwrite")] = False,
+) -> None:
+    """Generate a large score-independent metadata-contrast corpus."""
+    paths = generate_contrast_preferences(
+        index=index,
+        output_dir=output,
+        step_count=step_count,
+        seed=seed,
+        overwrite=overwrite,
+    )
+    info(f"Metadata-contrast steps written to {paths['steps']}")
+    info(f"Metadata-contrast comparisons written to {paths['pairs']}")
+    info(f"Readable pair audit written to {paths['audit']}")
+
+
+@app.command("analyze-pairs")
+def analyze_pairs(
+    pair_scores: Annotated[
+        Path,
+        typer.Option(
+            "--pair-scores",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
+    output: Annotated[Path, typer.Option("--output")],
+) -> None:
+    """Create a descriptive diagnostic inventory from pair score rows."""
+    paths = analyze_pair_scores(
+        pair_scores_jsonl=pair_scores,
+        output_dir=output,
+    )
+    info(f"Pair diagnostic summary written to {paths['summary']}")
+    info(f"Prioritized diagnostic cases written to {paths['cases']}")
 
 
 @app.command("score-review")

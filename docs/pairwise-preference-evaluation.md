@@ -1,237 +1,182 @@
 # Pairwise preference evaluation (Project 1, Step 1)
 
+For current result tables, exact development and W25 commands, output paths,
+and project status, see the
+[project status, experiments, and execution guide](stesso-project-update.md).
+This page is the technical reference for the evaluator.
+
 ## Purpose
 
-This command tests whether the repository's lexical, structured, or hybrid
-scorer agrees with clip preferences that have already been observed. For every
-valid pair associated with one project step, it directly computes each method's
-score for clip A and clip B. It does not retrieve challengers or create a
-blinded review sheet.
+`evaluate-pairs` measures whether the frozen lexical, structured, or hybrid
+scorer agrees with an already-observed A/B clip preference for a project step.
+It scores only the supplied clips:
 
-For each method, agreement credit is:
+```text
+score(step query, clip A)
+score(step query, clip B)
+```
 
-- `1.0` when the judged winner receives the higher score;
-- `0.5` when A and B receive exactly equal scores; and
-- `0.0` when the judged loser receives the higher score.
+It does not retrieve a challenger, build a review sheet, or infer a preference
+from corpus rank.
 
-The primary result is the mean credit over all resolved, valid comparisons.
+For each method:
+
+- higher score for the judged winner: credit `1.0`;
+- exact score tie: credit `0.5`; and
+- higher score for the judged loser: credit `0.0`.
+
+Mean credit over resolved valid comparisons is the agreement rate.
 
 ## Inputs
 
-`evaluate-pairs` takes three JSONL files:
+The command accepts three inputs:
 
-- `--index`: either the original nested `indexed-videos-*.jsonl` export or an
-  index directory produced by `build` (the directory that contains `input/`,
-  `month1/`, and `month2/`);
-- `--steps`: project-step rows following
+- `--index`: a nested `indexed-videos-*.jsonl` export or a built index directory;
+- `--steps`: rows following
   [`preference_steps.schema.json`](../data_contracts/preference_steps.schema.json);
   and
-- `--pairs`: judged comparisons following
+- `--pairs`: rows following
   [`preference_pairs.schema.json`](../data_contracts/preference_pairs.schema.json).
 
-Each `clip_a` and `clip_b` reference contains either a canonical `clip_id` or
-`video_id`, `start_seconds`, and `end_seconds`. Exact IDs are resolved directly.
-Timestamp references use the existing canonical segment resolver and a frozen
-default tolerance of 0.05 seconds. If both forms are present, they must agree.
-Missing and ambiguous references are recorded as unresolved; they are never
-silently dropped or scored as if they had resolved.
+The current preference contract is separate from the legacy
+`pairwise.schema.json`, which belongs to the old-versus-new ranking workflow.
 
-The W25 field names were still provisional when this path was implemented. The
-loader accepts `id` as an alias for a pair's `comparison_id`, and `winner` as an
-alias for `winner_position` only when the value is `A` or `B`. A step may use
-either `id` or `step_id`. Output uses the canonical names. Every comparison must
-have nonblank `judge_provenance`; optional `judge_confidence` must be between 0
-and 1.
+A clip reference may contain:
 
-## Frozen evaluation rule
+- a canonical `clip_id`; or
+- `video_id`, `start_seconds`, and `end_seconds`.
 
-This is a no-tuning evaluation. A step query is built once, deterministically,
-from nonempty parts in this exact order:
+Exact IDs resolve directly. Timestamp references use the shared canonical
+segment resolver with a 0.05-second tolerance. When both forms are supplied,
+they must identify the same clip. The output preserves the original reference,
+canonical ID when resolved, and resolution status.
+
+The provisional W25 loader accepts `id` as an alias for `comparison_id`, `id`
+as an alias for a step's `step_id`, and `winner` as an alias for
+`winner_position` only when its value is `A` or `B`. Output always uses canonical
+field names. Each comparison requires nonblank `judge_provenance`; optional
+`judge_confidence` must be numeric from 0 through 1.
+
+## Frozen query and scoring configuration
+
+The query contains nonempty step fields in this order:
 
 1. `title`
 2. `description`
-3. `Tools: ` followed by tools in source order, joined with `, `
-4. `Materials: ` followed by materials in source order, joined with `, `
+3. `Tools: ` plus source-order tools joined by `, `
+4. `Materials: ` plus source-order materials joined by `, `
 
-The nonempty parts are joined with one space. Empty tool or material arrays do
-not add their labelled part. The finalized query is written to every scored
-row, and the construction rule is recorded in the run provenance. Structured
-query parsing uses the same production query parser and imperative fallback as
-search; the existing Month 1 inventory helper then attaches the supplied step
-tools and materials as context to each parsed action. A missing action yields a
-structured tie and the production hybrid method's lexical fallback, both of
-which remain visible in row diagnostics.
+Parts are joined with one space. Empty inventories add no labeled part. Every
+scored row stores the final query and the run manifest stores the construction
+rule.
 
-The evaluation uses the repository's existing frozen scorer settings:
+The evaluator uses the existing production query parser and scorer defaults:
 
-- unchanged TF-IDF lexical configuration;
-- structured weights of 0.55 action, 0.35 object, and 0.10 tool/supply; and
-- hybrid alpha 0.5 (equal lexical and structured contributions).
+| Setting | Frozen value |
+|---|---|
+| Lexical | Existing TF-IDF configuration |
+| Action weight | 0.55 |
+| Object weight | 0.35 |
+| Tool/supply weight | 0.10 |
+| Hybrid alpha | 0.5 |
+| Timestamp tolerance | 0.05 seconds |
 
-Do not select another query form, change parsing, sweep hybrid alpha, or adjust
-weights, thresholds, retrieval settings, or timestamp tolerance after looking
-at agreement results. Such work belongs to a later experiment, not Step 1.
+A missing parsed action remains visible in diagnostics. It produces a structured
+tie and the existing hybrid lexical fallback. Step 1 does not change parser
+behavior, weights, alpha, thresholds, query formulation, or retrieval settings.
 
-## Run the evaluation
+## Validation
 
-The direct W25 command, using the raw nested index export, is:
+The evaluator records, rather than silently discarding:
+
+- malformed JSONL;
+- missing or unknown step IDs;
+- missing clip references;
+- unresolved or ambiguous timestamps;
+- invalid winner positions;
+- the same canonical clip in both positions;
+- a winner that cannot be mapped to a resolved clip; and
+- malformed provenance or confidence.
+
+Fatal file-level contract errors stop evaluation with a clear message. Row-level
+resolution outcomes are written to `validation_report.json` and included in
+total, resolved, and unresolved counts.
+
+## Bootstrap confidence intervals
+
+The evaluator uses a nonparametric clustered bootstrap. One iteration samples
+`step_id` values with replacement and includes every comparison belonging to
+each selected step. It does not sample comparison rows independently.
+
+The default is 5,000 iterations and a user-supplied seed. The seed, iteration
+count, cluster field, and confidence level are stored in the manifest and
+summary. A fixed seed produces reproducible intervals.
+
+## Generic command
 
 ```bash
 ./scripts/run_local_pipeline.sh evaluate-pairs \
-  --index data/indexed-videos-w25.jsonl \
-  --steps data/steps-w25.jsonl \
-  --pairs data/pairwise-w25.jsonl \
-  --output project1_outputs/w25/step1 \
+  --index path/to/indexed-videos.jsonl \
+  --steps path/to/steps.jsonl \
+  --pairs path/to/pairwise.jsonl \
+  --output project1_outputs/run-name/step1 \
   --seed 42 \
   --bootstrap-iterations 5000
 ```
 
-The iteration flag is optional; 5,000 is the default. The seed makes the
-bootstrap confidence intervals reproducible.
-
-If the W25 index has already been built, pass that index directory instead:
+Then create the descriptive case inventory:
 
 ```bash
-SAMPLE_JSONL=data/indexed-videos-w25.jsonl \
-SAMPLE_OUTPUT_DIR=project1_outputs/w25/index \
-  ./scripts/run_local_pipeline.sh build
-
-./scripts/run_local_pipeline.sh evaluate-pairs \
-  --index project1_outputs/w25/index \
-  --steps data/steps-w25.jsonl \
-  --pairs data/pairwise-w25.jsonl \
-  --output project1_outputs/w25/step1 \
-  --seed 42
+./scripts/run_local_pipeline.sh analyze-pairs \
+  --pair-scores project1_outputs/run-name/step1/pair_scores.jsonl \
+  --output project1_outputs/run-name/diagnostics
 ```
 
-Building first is optional; do not create another intermediate format solely
-for this evaluator.
+`analyze-pairs` does not change scores. Its overlapping flags identify parse
+failures, structured ties, zero structured evidence, method disagreements, and
+method-specific agreement with the supplied winner.
 
-### Generate development-only pseudo-judgments
-
-When real judgments are unavailable, a separate command can create deterministic
-target-derived data from an existing index:
-
-```bash
-./scripts/run_local_pipeline.sh generate-synthetic-pairs \
-  --index project1_outputs/indexed-video-sample \
-  --output project1_outputs/synthetic-preference-development \
-  --step-count 40 \
-  --seed 42
-```
-
-It writes `steps.jsonl`, `pairwise.jsonl`, a readable `pair_audit.csv`, a data
-notice, and a generation manifest. Each synthetic step copies one target clip's
-metadata, and that target is declared the winner against one within-video and
-one cross-video distractor. Winner positions alternate between A and B.
-
-This intentional answer leakage makes the files useful for integration tests,
-output development, and later-analysis plumbing—but invalid for scientific
-claims. Every row and artifact is marked synthetic; neither provenance value
-claims to be a human or production cascade judgment.
-
-Run the frozen evaluator on the generated inputs with:
-
-```bash
-./scripts/run_local_pipeline.sh evaluate-pairs \
-  --index project1_outputs/indexed-video-sample \
-  --steps project1_outputs/synthetic-preference-development/steps.jsonl \
-  --pairs project1_outputs/synthetic-preference-development/pairwise.jsonl \
-  --output project1_outputs/synthetic-preference-development/step1 \
-  --seed 42
-```
-
-### Generate a controlled hard-negative development set
-
-The random synthetic corpus primarily verifies input and resolution behavior.
-For error-analysis development, generate a larger controlled corpus:
-
-```bash
-./scripts/run_local_pipeline.sh generate-controlled-pairs \
-  --index project1_outputs/indexed-video-sample \
-  --output project1_outputs/controlled-preference-development \
-  --step-count 100 \
-  --seed 42
-```
-
-For each selected target, this command attempts to construct comparisons
-against four candidate classes:
-
-- the closest timestamped clip from the same source video;
-- a high-scoring lexical candidate from another video;
-- a high-scoring structured candidate from another video; and
-- a title that contains the same parsed object with a different action.
-
-Targets are distributed across source categories and source videos. Step text
-uses the target title plus a bounded tool/material inventory. Each row records
-its candidate-selection class, metadata-derived label rule, and development-only
-status. The readable audit CSV contains both titles and canonical intervals.
-
-The target is still assigned as the winner by construction. Candidate selection
-uses the same annotations and frozen scorers that are later evaluated, so the
-result is selection-biased and must not be reported as preference evidence. It
-is more useful than random distractors for exercising action/object error cases,
-but it is not human-adjudicated data.
-
-Evaluate the controlled corpus with:
-
-```bash
-./scripts/run_local_pipeline.sh evaluate-pairs \
-  --index project1_outputs/indexed-video-sample \
-  --steps project1_outputs/controlled-preference-development/steps.jsonl \
-  --pairs project1_outputs/controlled-preference-development/pairwise.jsonl \
-  --output project1_outputs/controlled-preference-development/step1 \
-  --seed 42
-```
-
-## Outputs
+## Evaluation outputs
 
 The output directory contains:
 
-- `pair_scores.jsonl`: one auditable record per input comparison, preserving
-  the original references, resolution status, canonical IDs, fixed query,
-  judgment provenance and confidence, and A/B scores, predicted winner, and
-  credit for all three methods. Existing structured diagnostics are included
-  for later analysis, but Step 1 does not use them to modify scoring.
-- `summary.json`: machine-readable resolution counts and percentage; each
-  method's mean credit, wins, ties, losses, and 95% confidence interval; plus
-  descriptive parse, provenance, confidence, and winner-position counts.
-- `summary.md`: a concise human-readable method table and frozen run
-  configuration.
-- `validation_report.json`: row-level input and clip-resolution outcomes,
-  including malformed, unknown-step, unresolved, ambiguous, same-clip, and
-  inconsistent-winner errors. Comparisons that cannot be scored remain
-  visible here and in the totals.
-- `manifest.json`: input and configuration provenance needed to reproduce the
-  run.
+| File | Contents |
+|---|---|
+| `pair_scores.jsonl` | One row per scorable comparison: query, original references, resolution, canonical IDs, judgment metadata, scores, predictions, credits, and structured diagnostics |
+| `summary.json` | Resolution totals; method agreement, wins, ties, losses, intervals; parse, provenance, confidence, and winner-position counts |
+| `summary.md` | Compact method table and frozen configuration |
+| `validation_report.json` | File- and row-level validation and resolution outcomes |
+| `manifest.json` | Inputs, hashes, query rule, scoring settings, bootstrap settings, and software provenance |
 
-The summary always distinguishes total, resolved, and unresolved comparisons
-and reports the resolution percentage. The expected operational target for the
-real export is at least 90% resolution, but the evaluator reports what the data
-actually contains rather than manufacturing replacements.
+The summary reports total, resolved, unresolved, and resolution percentage. The
+operational target for the authentic export is at least 90% resolved; the code
+reports actual data quality and does not fabricate replacements.
 
-## Confidence intervals and provenance
+## Diagnostic outputs
 
-The 95% intervals use a nonparametric clustered bootstrap. A draw samples
-`step_id` clusters with replacement and includes all comparisons belonging to
-each selected step. It never samples pair rows independently, because judgments
-for the same step need not be independent. Both the seed and number of draws
-are stored with the outputs.
+`analyze-pairs` writes:
 
-All delivered valid judgments form the primary result. Provenance counts and
-optional descriptive cascade/human slices are retained for interpretation;
-the smaller human subset is not used for tuning or promoted to the primary
-result.
+| File | Contents |
+|---|---|
+| `diagnostic_cases.csv` | Auditable pair-level case table and overlapping flags |
+| `diagnostic_summary.json` | Machine-readable descriptive counts |
+| `diagnostic_summary.md` | Compact readable counts |
+| `diagnostic_manifest.json` | Input hash and analysis provenance |
+
+Diagnostics are inputs to later Step 2 work. They are not parser fixes, causal
+error labels, or evidence that a method should be tuned.
 
 ## Interpretation
 
-The reported number is preference agreement: given the same judged A/B pair,
-how often did a frozen scoring method favor the observed winner? It is not
-top-*k* accuracy, corpus retrieval recall, parser quality, or proof that one
-method will retrieve better candidates from the full index.
+The result is preference agreement for supplied A/B pairs. It is not top-*k*
+retrieval accuracy, parser precision, or evidence that the method would have
+retrieved either clip from the full corpus.
 
-Synthetic fixtures exercise the machinery only. No research conclusion should
-be recorded until the real Stesso W25 index, steps, and preference export have
-been evaluated. Error analysis, parser changes, tie reduction, alpha sweeps,
-reranking experiments, and other optimization are explicitly deferred to
-Steps 2 and 3.
+All valid delivered judgments form the primary result. Provenance counts,
+confidence values, winner positions, and optional provenance-specific summaries
+remain descriptive. A smaller human subset is not used for tuning or promoted
+to the primary result.
+
+Generated development labels exercise the pipeline only. No primary Step 1
+research conclusion is available until the authentic W25 index, steps, and
+already-observed preference judgments are evaluated.

@@ -140,6 +140,7 @@ def _write_pairs(path: Path) -> None:
                 "judge_provenance": "cascade",
                 "judge_confidence": 0.91,
                 "judge_id": "cascade-v1",
+                "pair_type": "within-video",
             },
             {
                 "id": "comparison-canonical-ids",
@@ -338,6 +339,7 @@ def test_evaluator_writes_scored_and_retained_unscored_pairs(
     assert timestamp["judge_provenance"] == "cascade"
     assert timestamp["judge_confidence"] == 0.91
     assert timestamp["judge_id"] == "cascade-v1"
+    assert timestamp["input_metadata"] == {"pair_type": "within-video"}
     assert timestamp["lexical_predicted_winner"] == "A"
     assert timestamp["structured_predicted_winner"] == "A"
     assert timestamp["hybrid_predicted_winner"] == "A"

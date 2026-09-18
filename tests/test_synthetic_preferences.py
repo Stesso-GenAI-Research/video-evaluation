@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from action_semantics.contrast_preferences import generate_contrast_preferences
 from action_semantics.io_utils import write_jsonl
 from action_semantics.retrieval.preference_evaluation import (
     PreferencePairInput,
@@ -68,7 +69,18 @@ def _built_index(tmp_path: Path) -> Path:
             )
     write_jsonl(input_dir / "indexed_video_clips.jsonl", clips)
     write_jsonl(month1_dir / "action_object_tool_triples.jsonl", triples)
-    write_jsonl(month1_dir / "verbnet_mappings.jsonl", [])
+    write_jsonl(
+        month1_dir / "verbnet_mappings.jsonl",
+        [
+            {
+                "action_lemma": action,
+                "verbnet_classes": [],
+                "wordnet_synsets": [],
+                "has_mapping": True,
+            }
+            for action in ("detach", "mount")
+        ],
+    )
     write_jsonl(month2_dir / "framenet_mappings.jsonl", [])
     write_jsonl(month2_dir / "diy_actionnet_v1.jsonl", [])
     return root
@@ -180,3 +192,48 @@ def test_controlled_generator_writes_hard_negative_development_pairs(
     manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
     assert manifest["parameters"]["human_judgments"] is False
     assert manifest["parameters"]["selection_uses_frozen_scores"] is True
+
+
+def test_contrast_generator_writes_score_independent_pairs(tmp_path: Path) -> None:
+    index = _built_index(tmp_path)
+    paths = generate_contrast_preferences(
+        index=index,
+        output_dir=tmp_path / "contrast",
+        step_count=3,
+        seed=19,
+    )
+
+    steps = _read_jsonl(paths["steps"])
+    pairs = _read_jsonl(paths["pairs"])
+    assert len(steps) == 3
+    assert len(pairs) >= 6
+    assert all(PreferenceStepInput.model_validate(row) for row in steps)
+    assert all(PreferencePairInput.model_validate(row) for row in pairs)
+    assert all(row["pair_selection_uses_retrieval_scores"] is False for row in pairs)
+    assert {row["winner_position"] for row in pairs} == {"A", "B"}
+    pair_types = {row["synthetic_pair_type"] for row in pairs}
+    assert "same-object-different-action" in pair_types
+    assert "within-video-adjacent" in pair_types
+    assert all("no human review" in row["adjudication_basis"] for row in pairs)
+    manifest = json.loads(paths["manifest"].read_text(encoding="utf-8"))
+    assert manifest["parameters"]["selection_uses_retrieval_scores"] is False
+    assert manifest["parameters"]["human_judgments"] is False
+    assert manifest["parameters"]["pair_count"] == len(pairs)
+
+    second = generate_contrast_preferences(
+        index=index,
+        output_dir=tmp_path / "contrast-second",
+        step_count=3,
+        seed=19,
+    )
+    for key in ("steps", "pairs", "audit"):
+        assert paths[key].read_text(encoding="utf-8") == second[key].read_text(
+            encoding="utf-8"
+        )
+    with pytest.raises(ValueError, match="Refusing to overwrite"):
+        generate_contrast_preferences(
+            index=index,
+            output_dir=tmp_path / "contrast",
+            step_count=3,
+            seed=19,
+        )

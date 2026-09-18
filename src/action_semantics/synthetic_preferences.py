@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Final
@@ -58,6 +59,40 @@ _GENERIC_TITLE_ACTIONS: Final[frozenset[str]] = frozenset(
         "use",
     }
 )
+CONTROLLED_ACTION_PARAPHRASES: Final[dict[str, str]] = {
+    "add": "include",
+    "align": "position",
+    "apply": "spread",
+    "assemble": "join",
+    "attach": "fasten",
+    "clean": "wash",
+    "close": "shut",
+    "connect": "join",
+    "cut": "trim",
+    "disconnect": "detach",
+    "drill": "bore",
+    "fasten": "secure",
+    "fill": "load",
+    "hold": "press",
+    "insert": "place",
+    "install": "mount",
+    "mark": "indicate",
+    "measure": "gauge",
+    "mix": "combine",
+    "open": "uncover",
+    "paint": "coat",
+    "place": "position",
+    "pour": "dispense",
+    "prepare": "ready",
+    "remove": "detach",
+    "replace": "swap",
+    "sand": "smooth",
+    "seal": "close",
+    "secure": "fasten",
+    "set": "position",
+    "squeeze": "press",
+    "tighten": "fasten",
+}
 
 
 def _inventory(clip: ClipRecord, key: str) -> list[str]:
@@ -98,6 +133,17 @@ def _eligible_clip(clip: ClipRecord) -> bool:
         clip.video_id is not None
         and normalize_text(clip.title)
         and normalize_text(clip.description or clip.summary)
+        and start is not None
+        and end is not None
+        and end > start
+    )
+
+
+def _reference_eligible_clip(clip: ClipRecord) -> bool:
+    start, end = clip_interval(clip)
+    return bool(
+        clip.video_id is not None
+        and normalize_text(clip.title)
         and start is not None
         and end is not None
         and end > start
@@ -369,9 +415,24 @@ def _select_diverse_targets(
 ) -> list[ClipRecord]:
     by_category: defaultdict[str, list[ClipRecord]] = defaultdict(list)
     for clip in clips:
-        if not normalize_text(clip.description or clip.summary):
+        primary = _primary_title_triple(clip, resources)
+        if (
+            primary is None
+            or primary.action_lemma not in CONTROLLED_ACTION_PARAPHRASES
+        ):
             continue
-        if _primary_title_triple(clip, resources) is None:
+        query_title = _paraphrased_title(clip.title, primary)
+        _, query_triples = _step_query_triples(
+            {
+                "id": f"controlled-eligibility-{clip.clip_id}",
+                "title": query_title,
+                "description": None,
+                "tools": [],
+                "materials": [],
+            },
+            resources,
+        )
+        if not query_triples:
             continue
         by_category[_category_name(clip) or "Uncategorized"].append(clip)
 
@@ -417,9 +478,29 @@ def _select_diverse_targets(
     if len(selected) < step_count:
         raise ValueError(
             f"Requested {step_count} controlled steps, but only {len(selected)} clips "
-            "have descriptions and usable title actions and objects"
+            "have resolvable, parseable action-paraphrase queries"
         )
     return selected
+
+
+def _paraphrased_title(title: str | None, triple: ActionTriple) -> str:
+    replacement = CONTROLLED_ACTION_PARAPHRASES[triple.action_lemma]
+    object_text = normalize_text(triple.object_text)
+    if object_text:
+        return f"{replacement.capitalize()} {object_text}"
+    source = normalize_text(title)
+    action_text = normalize_text(triple.action_text)
+    if source and action_text:
+        paraphrased, count = re.subn(
+            rf"\b{re.escape(action_text)}\b",
+            replacement,
+            source,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if count:
+            return paraphrased
+    raise ValueError(f"Cannot construct a controlled query for clip {triple.record_id}")
 
 
 def _step_query_triples(
@@ -545,12 +626,16 @@ This directory contains {step_count} metadata-derived steps and {pair_count}
 fabricated comparisons (seed {seed}). It is a controlled development set, not
 human preference data and not an estimate of production quality.
 
-Each step is derived from one canonical target clip. Distractors are selected
-from four difficult candidate classes: an adjacent clip from the same video, a
-high-scoring lexical candidate, a high-scoring structured candidate, and a clip
-whose title contains the same parsed object with a different action. The target
-is assigned as the winner by construction. No video playback or independent
-human adjudication was performed.
+Each step is derived from one canonical target clip. The title action is
+replaced through a fixed action-paraphrase table before scoring; the original
+target title is not used as the step title. Tool and material inventories are
+retained as source metadata but excluded from the controlled query so the task
+isolates action/object behavior. Distractors are selected from four difficult
+candidate classes: an adjacent clip from the same video, a high-scoring lexical
+candidate, a high-scoring structured candidate, and a clip whose title contains
+the same parsed object with a different action. The target is assigned as the
+winner by construction. No video playback or independent human adjudication was
+performed.
 
 This selection process intentionally depends on clip annotations and frozen
 retrieval scores. Use the files for diagnostic tooling, scorer contrast tests,
@@ -588,7 +673,11 @@ def generate_controlled_preferences(
         )
 
     index_artifacts = prepare_preference_index(index, output_dir)
-    clips = [clip for clip in read_clips(index_artifacts.clips_jsonl) if _eligible_clip(clip)]
+    clips = [
+        clip
+        for clip in read_clips(index_artifacts.clips_jsonl)
+        if _reference_eligible_clip(clip)
+    ]
     resources = resources_from_files(index_artifacts.month1_dir, index_artifacts.month2_dir)
     targets = _select_diverse_targets(
         clips,
@@ -612,19 +701,26 @@ def generate_controlled_preferences(
     for step_index, target in enumerate(targets, start=1):
         target_triple = title_triples[target.clip_id]
         step_id = f"controlled-development-step-{step_index:03d}"
+        query_title = _paraphrased_title(target.title, target_triple)
         step = {
             "id": step_id,
-            "title": normalize_text(target.title),
+            "title": query_title,
             "description": None,
-            "tools": _inventory(target, "tools")[:3],
-            "materials": _inventory(target, "supplies")[:3],
+            "tools": [],
+            "materials": [],
             "synthetic": True,
             "development_only": True,
             "synthetic_generator": CONTROLLED_GENERATOR_VERSION,
             "synthetic_target_clip_id": target.clip_id,
             "synthetic_source_category": _category_name(target),
-            "controlled_action": target_triple.action_lemma,
+            "controlled_source_action": target_triple.action_lemma,
+            "controlled_query_action": CONTROLLED_ACTION_PARAPHRASES[
+                target_triple.action_lemma
+            ],
             "controlled_objects": target_triple.object_lemmas,
+            "query_title_paraphrased": True,
+            "source_tools": _inventory(target, "tools")[:3],
+            "source_materials": _inventory(target, "supplies")[:3],
         }
         query_text, query_triples = _step_query_triples(step, resources)
         if not query_triples:
@@ -731,8 +827,12 @@ def generate_controlled_preferences(
                 {
                     "comparison_id": comparison_id,
                     "step_id": step_id,
-                    "step_title": target.title,
-                    "controlled_action": target_triple.action_lemma,
+                    "step_title": query_title,
+                    "target_clip_title": target.title,
+                    "controlled_source_action": target_triple.action_lemma,
+                    "controlled_query_action": CONTROLLED_ACTION_PARAPHRASES[
+                        target_triple.action_lemma
+                    ],
                     "controlled_objects": "; ".join(target_triple.object_lemmas),
                     "pair_type": pair_type,
                     **_clip_audit_fields("clip_a", clip_a),
@@ -782,6 +882,9 @@ def generate_controlled_preferences(
             "pair_type_counts": pair_type_counts,
             "hybrid_alpha_lexical": FROZEN_HYBRID_ALPHA,
             "selection_uses_frozen_scores": True,
+            "query_title_rule": "replace source title action using fixed paraphrase table",
+            "query_inventory_policy": "exclude tools and materials; retain as source metadata",
+            "action_paraphrases": CONTROLLED_ACTION_PARAPHRASES,
             "label_rule": "target clip used to define each step wins",
             "judge_confidence": SYNTHETIC_CONFIDENCE,
             "index_root": str(index_artifacts.root),

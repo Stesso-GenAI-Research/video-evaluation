@@ -8,13 +8,13 @@ records in three different ways.
 ## The full pipeline
 
 ```text
-indexed-videos-250.jsonl
+indexed-videos-*.jsonl
           |
           v
 validate and merge clip annotations
           |
           v
-1,663 canonical timestamped clips
+canonical timestamped clips
           |
           v
 extract actions, objects, tools, and supplies
@@ -36,20 +36,19 @@ contains a nested `clips` list, and each clip annotation describes a time range
 inside that video. The parser walks all the way into those lists; it does not
 treat one line as one searchable clip.
 
-The current sample contains 250 parent videos and 1,703 raw clip annotations.
 The build performs three important cleanup steps:
 
-1. It rejects a clip when its end time is not later than its start time. Three
-   rows fail this check and are written to `input/rejected_clips.jsonl`.
-2. It groups rows that point to the same video and timestamp range. There are
-   36 repeated timestamp groups containing 37 redundant rows.
+1. It rejects a clip when its end time is not later than its start time and
+   writes the row to `input/rejected_clips.jsonl`.
+2. It groups rows that point to the same video and timestamp range.
 3. It merges the useful metadata from repeated rows instead of silently
    throwing it away. Alternate titles become aliases and the original rows stay
    available as provenance.
 
-The result is 1,663 distinct, playable segments. A canonical clip ID is built
-from the source video ID and timestamps. This makes the ID stable even if the
-input lines are reordered.
+The result is a set of distinct, playable segments. A canonical clip ID is
+built from the source video ID and timestamps. This makes the ID stable even if
+the input lines are reordered. The current sample audit is recorded in the
+[project status guide](stesso-project-update.md#31-real-indexed-video-sample).
 
 The parser retains both clip-level and parent-video fields. These include names,
 descriptions, goals, categories, source information, engagement counts, URLs,
@@ -83,14 +82,15 @@ evidence after an exact action match fails. The build also creates an early DIY
 action taxonomy. That taxonomy is exploratory and has not been manually
 validated, so production ranking does not use it.
 
-The current extraction coverage is summarized in
-[Experiments and results](experiments-and-results.md). Coverage means the parser
-found a field; it is not the same as human-checked precision.
+Current extraction coverage is summarized in the
+[project status guide](stesso-project-update.md#31-real-indexed-video-sample).
+Coverage means the parser found a field; it is not the same as human-checked
+precision.
 
 ## 3. Building three search methods
 
-All methods search the same 1,663 canonical clips and return the same kind of
-result record. Only the scoring rule changes.
+All methods search the same canonical clips and return the same kind of result
+record. Only the scoring rule changes.
 
 ### Lexical search
 
@@ -161,18 +161,21 @@ run reproducible and easier to inspect than terminal text alone.
 
 ## 5. Evaluating the result lists
 
-There are two separate evaluation paths:
+There are three separate evaluation paths:
 
 - The **automatic development benchmark** uses fields already paired inside the
   sample. It runs without new labels and is useful for finding weaknesses.
+- The **pairwise preference evaluation** directly scores an already-judged A/B
+  pair for one project step. It is the frozen Project 1, Step 1 experiment.
 - The **old-versus-new human comparison** takes the real old top results,
   generates new results, hides the system names, and asks a person which clips
   are relevant. This is the experiment needed for the main quality claim.
 
-The first path works and has current results. The software for the second path
-also works, but the repository does not yet contain the supervisor's original
-rankings or completed human judgments. See
-[Experiments and results](experiments-and-results.md) for the distinction.
+All three paths are implemented. The repository does not yet contain the
+authentic W25 pairwise judgments or the supervisor's historical rankings and
+completed review. See
+[Experiment methodology](experiments-and-results.md) for the distinctions and
+the [project status guide](stesso-project-update.md) for current results.
 
 ## What this system is not
 

@@ -4,6 +4,10 @@ The Bash script in `scripts/run_local_pipeline.sh` is the normal entry point.
 It supplies the long file paths for the Python CLI and keeps the common workflow
 in one place.
 
+For the exact current development and W25 experiment sequence, result tables,
+and output locations, see the
+[project status, experiments, and execution guide](stesso-project-update.md).
+
 Run every command below from the repository root.
 
 ## Requirements and one-time setup
@@ -50,7 +54,9 @@ review worksheet. Those activities require a query or a human decision.
 | `compare-batch` | Compare many supplied old rankings and make a blind worksheet. |
 | `generate-synthetic-pairs` | Create labeled development-only preference inputs. |
 | `generate-controlled-pairs` | Create action/object-focused hard-negative development inputs. |
+| `generate-contrast-pairs` | Create a large score-independent metadata-contrast corpus. |
 | `evaluate-pairs` | Directly score already-judged A/B pairs for frozen Step 1. |
+| `analyze-pairs` | Write descriptive diagnostic counts and a prioritized pair case table. |
 | `score-review` | Score a completed old-versus-new worksheet. |
 | `benchmark` | Run the automatic field-pair development benchmark. |
 | `review` | Summarize labels in the extraction-quality worksheet. |
@@ -137,7 +143,7 @@ For the real multi-query experiment, use a JSONL file that follows the
 This validates the full input before searching, loads the indexes once for the
 batch, generates challenger results, and writes a pooled worksheet in a hidden
 A/B order. The detailed research procedure is in
-[Experiments and results](experiments-and-results.md#the-real-old-versus-new-experiment).
+[Experiment methodology](experiments-and-results.md#old-versus-new-ranking-review).
 
 ## Evaluating already-judged pairs
 
@@ -159,8 +165,19 @@ The command writes `pair_scores.jsonl`, `summary.json`, `summary.md`,
 frozen; only the bootstrap seed and number of bootstrap iterations are run
 controls. See the dedicated
 [pairwise-preference guide](pairwise-preference-evaluation.md) for the current
-contracts, built-index form, resolution policy, controlled development-data
-commands, and interpretation.
+contracts, built-index form, resolution policy, validation, and interpretation.
+
+After evaluation, produce a non-tuning diagnostic inventory with:
+
+```bash
+./scripts/run_local_pipeline.sh analyze-pairs \
+  --pair-scores project1_outputs/w25/step1/pair_scores.jsonl \
+  --output project1_outputs/w25/diagnostics
+```
+
+The output includes `diagnostic_cases.csv`, `diagnostic_summary.json`,
+`diagnostic_summary.md`, and a manifest. Diagnostic flags are overlapping
+descriptions of score behavior, not validated error causes.
 
 ## Completing a blinded review
 
