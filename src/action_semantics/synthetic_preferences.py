@@ -15,16 +15,49 @@ from typing import Any, Final
 
 from action_semantics.config import DEFAULT_RANDOM_SEED
 from action_semantics.io_utils import read_clips, write_csv, write_jsonl
-from action_semantics.models import ClipRecord
+from action_semantics.models import ActionTriple, ClipRecord, StepRecord
+from action_semantics.month1 import add_record_inventories
 from action_semantics.provenance import build_manifest
 from action_semantics.retrieval.clip_resolution import clip_interval
-from action_semantics.retrieval.preference_evaluation import prepare_preference_index
+from action_semantics.retrieval.lexical import TfidfIndex
+from action_semantics.retrieval.preference_evaluation import (
+    FROZEN_HYBRID_ALPHA,
+    PreferenceStepInput,
+    build_step_query,
+    prepare_preference_index,
+)
+from action_semantics.retrieval.scorers import (
+    StructuredResources,
+    resources_from_files,
+    score_query_clip_ids,
+)
+from action_semantics.retrieval.search import parse_query_triples
 from action_semantics.text import normalize_text
 
 
 SYNTHETIC_GENERATOR_VERSION: Final[str] = "target-derived-preferences-v1"
+CONTROLLED_GENERATOR_VERSION: Final[str] = "controlled-action-contrast-v1"
 DEFAULT_SYNTHETIC_STEP_COUNT: Final[int] = 40
+DEFAULT_CONTROLLED_STEP_COUNT: Final[int] = 100
 SYNTHETIC_CONFIDENCE: Final[float] = 0.5
+_GENERIC_TITLE_ACTIONS: Final[frozenset[str]] = frozenset(
+    {
+        "analyze",
+        "assess",
+        "be",
+        "demonstrate",
+        "ensure",
+        "have",
+        "identify",
+        "include",
+        "introduce",
+        "provide",
+        "review",
+        "show",
+        "understand",
+        "use",
+    }
+)
 
 
 def _inventory(clip: ClipRecord, key: str) -> list[str]:
@@ -296,6 +329,465 @@ def generate_synthetic_preferences(
         },
     )
     manifest["schema_version"] = "synthetic-preference-generation.v1"
+    paths["manifest"].write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return {**paths, "index_root": index_artifacts.root}
+
+
+def _primary_title_triple(
+    clip: ClipRecord,
+    resources: StructuredResources,
+) -> ActionTriple | None:
+    candidates = [
+        triple
+        for triple in resources.triples_for("clip", clip.clip_id)
+        if triple.source_field == "title"
+        and triple.object_lemmas
+        and triple.action_lemma not in _GENERIC_TITLE_ACTIONS
+    ]
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda row: (
+            row.confidence,
+            len(row.object_lemmas),
+            bool(row.tool_lemmas),
+            row.action_lemma,
+        ),
+    )
+
+
+def _select_diverse_targets(
+    clips: list[ClipRecord],
+    resources: StructuredResources,
+    *,
+    step_count: int,
+    seed: int,
+) -> list[ClipRecord]:
+    by_category: defaultdict[str, list[ClipRecord]] = defaultdict(list)
+    for clip in clips:
+        if not normalize_text(clip.description or clip.summary):
+            continue
+        if _primary_title_triple(clip, resources) is None:
+            continue
+        by_category[_category_name(clip) or "Uncategorized"].append(clip)
+
+    rng = random.Random(seed)
+    for category_clips in by_category.values():
+        category_clips.sort(key=lambda row: row.clip_id)
+        rng.shuffle(category_clips)
+
+    categories = sorted(by_category)
+    rng.shuffle(categories)
+    selected: list[ClipRecord] = []
+    used_videos: set[str] = set()
+    deferred: defaultdict[str, list[ClipRecord]] = defaultdict(list)
+    while len(selected) < step_count:
+        progressed = False
+        for category in categories:
+            category_clips = by_category[category]
+            while category_clips:
+                candidate = category_clips.pop()
+                video_id = str(candidate.video_id)
+                if video_id in used_videos:
+                    deferred[category].append(candidate)
+                    continue
+                selected.append(candidate)
+                used_videos.add(video_id)
+                progressed = True
+                break
+            if len(selected) == step_count:
+                break
+        if not progressed:
+            break
+    while len(selected) < step_count:
+        progressed = False
+        for category in categories:
+            if not deferred[category]:
+                continue
+            selected.append(deferred[category].pop())
+            progressed = True
+            if len(selected) == step_count:
+                break
+        if not progressed:
+            break
+    if len(selected) < step_count:
+        raise ValueError(
+            f"Requested {step_count} controlled steps, but only {len(selected)} clips "
+            "have descriptions and usable title actions and objects"
+        )
+    return selected
+
+
+def _step_query_triples(
+    step: dict[str, Any],
+    resources: StructuredResources,
+) -> tuple[str, list[ActionTriple]]:
+    typed_step = PreferenceStepInput.model_validate(step)
+    query_text, _ = build_step_query(typed_step)
+    known_verbs = {row.action_lemma for row in resources.verbnet if row.has_mapping}
+    triples, _ = parse_query_triples(
+        query_text,
+        "en_core_web_sm",
+        known_verbs=known_verbs,
+    )
+    inventory_step = StepRecord(
+        step_id=typed_step.step_id,
+        title=typed_step.title,
+        description=typed_step.description,
+        tools=typed_step.tools,
+        materials=typed_step.materials,
+    )
+    return query_text, add_record_inventories(triples, [], [inventory_step])
+
+
+def _closest_within_video(
+    target: ClipRecord,
+    clips: list[ClipRecord],
+) -> ClipRecord | None:
+    target_start, target_end = clip_interval(target)
+    if target_start is None or target_end is None:
+        return None
+    target_midpoint = (target_start + target_end) / 2
+    candidates: list[tuple[float, str, ClipRecord]] = []
+    for clip in clips:
+        if clip.clip_id == target.clip_id or clip.video_id != target.video_id:
+            continue
+        start, end = clip_interval(clip)
+        if start is None or end is None or not normalize_text(clip.title):
+            continue
+        candidates.append((abs(((start + end) / 2) - target_midpoint), clip.clip_id, clip))
+    return min(candidates, default=(0.0, "", None))[2]
+
+
+def _ranked_distractor(
+    *,
+    target: ClipRecord,
+    clips: list[ClipRecord],
+    scores: dict[str, dict[str, Any]],
+    score_name: str,
+    used_clip_ids: set[str],
+    same_category_first: bool = True,
+) -> ClipRecord | None:
+    target_category = _category_name(target)
+    candidates = [
+        clip
+        for clip in clips
+        if clip.clip_id != target.clip_id
+        and clip.clip_id not in used_clip_ids
+        and clip.video_id != target.video_id
+        and normalize_text(clip.title)
+    ]
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda clip: (
+            -float(scores[clip.clip_id][score_name]),
+            -int(same_category_first and _category_name(clip) == target_category),
+            clip.clip_id,
+        )
+    )
+    return candidates[0]
+
+
+def _action_contrast_distractor(
+    *,
+    target: ClipRecord,
+    target_triple: ActionTriple,
+    clips: list[ClipRecord],
+    title_triples: dict[str, ActionTriple],
+    lexical_scores: dict[str, float],
+    used_clip_ids: set[str],
+) -> ClipRecord | None:
+    target_objects = set(target_triple.object_lemmas)
+    target_category = _category_name(target)
+    candidates: list[ClipRecord] = []
+    for clip in clips:
+        triple = title_triples.get(clip.clip_id)
+        if (
+            triple is None
+            or clip.clip_id == target.clip_id
+            or clip.clip_id in used_clip_ids
+            or clip.video_id == target.video_id
+            or triple.action_lemma == target_triple.action_lemma
+            or not target_objects.intersection(triple.object_lemmas)
+        ):
+            continue
+        candidates.append(clip)
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda clip: (
+            -int(_category_name(clip) == target_category),
+            -lexical_scores[clip.clip_id],
+            clip.clip_id,
+        )
+    )
+    return candidates[0]
+
+
+def _write_controlled_notice(
+    path: Path,
+    *,
+    step_count: int,
+    pair_count: int,
+    seed: int,
+) -> None:
+    path.write_text(
+        f"""# Controlled preference development data
+
+Generator: `{CONTROLLED_GENERATOR_VERSION}`
+
+This directory contains {step_count} metadata-derived steps and {pair_count}
+fabricated comparisons (seed {seed}). It is a controlled development set, not
+human preference data and not an estimate of production quality.
+
+Each step is derived from one canonical target clip. Distractors are selected
+from four difficult candidate classes: an adjacent clip from the same video, a
+high-scoring lexical candidate, a high-scoring structured candidate, and a clip
+whose title contains the same parsed object with a different action. The target
+is assigned as the winner by construction. No video playback or independent
+human adjudication was performed.
+
+This selection process intentionally depends on clip annotations and frozen
+retrieval scores. Use the files for diagnostic tooling, scorer contrast tests,
+and error-analysis workflow development only. Do not combine them with W25
+judgments or report their agreement rates as experimental findings.
+""",
+        encoding="utf-8",
+    )
+
+
+def generate_controlled_preferences(
+    *,
+    index: Path,
+    output_dir: Path,
+    step_count: int = DEFAULT_CONTROLLED_STEP_COUNT,
+    seed: int = DEFAULT_RANDOM_SEED,
+    overwrite: bool = False,
+) -> dict[str, Path]:
+    """Create an action/object-focused hard-negative development corpus."""
+    if step_count < 2:
+        raise ValueError("step_count must be at least 2")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths = {
+        "steps": output_dir / "steps.jsonl",
+        "pairs": output_dir / "pairwise.jsonl",
+        "audit": output_dir / "pair_audit.csv",
+        "notice": output_dir / "DATA_NOTICE.md",
+        "manifest": output_dir / "generation_manifest.json",
+    }
+    existing = [str(path) for path in paths.values() if path.exists()]
+    if existing and not overwrite:
+        raise ValueError(
+            "Refusing to overwrite controlled preference artifacts: "
+            + ", ".join(existing)
+        )
+
+    index_artifacts = prepare_preference_index(index, output_dir)
+    clips = [clip for clip in read_clips(index_artifacts.clips_jsonl) if _eligible_clip(clip)]
+    resources = resources_from_files(index_artifacts.month1_dir, index_artifacts.month2_dir)
+    targets = _select_diverse_targets(
+        clips,
+        resources,
+        step_count=step_count,
+        seed=seed,
+    )
+    tfidf = TfidfIndex.from_clips(clips)
+    title_triples = {
+        clip.clip_id: triple
+        for clip in clips
+        if (triple := _primary_title_triple(clip, resources)) is not None
+    }
+
+    step_rows: list[dict[str, Any]] = []
+    pair_rows: list[dict[str, Any]] = []
+    audit_rows: list[dict[str, Any]] = []
+    clip_ids = [clip.clip_id for clip in clips]
+    pair_number = 0
+    pair_type_occurrences: defaultdict[str, int] = defaultdict(int)
+    for step_index, target in enumerate(targets, start=1):
+        target_triple = title_triples[target.clip_id]
+        step_id = f"controlled-development-step-{step_index:03d}"
+        step = {
+            "id": step_id,
+            "title": normalize_text(target.title),
+            "description": None,
+            "tools": _inventory(target, "tools")[:3],
+            "materials": _inventory(target, "supplies")[:3],
+            "synthetic": True,
+            "development_only": True,
+            "synthetic_generator": CONTROLLED_GENERATOR_VERSION,
+            "synthetic_target_clip_id": target.clip_id,
+            "synthetic_source_category": _category_name(target),
+            "controlled_action": target_triple.action_lemma,
+            "controlled_objects": target_triple.object_lemmas,
+        }
+        query_text, query_triples = _step_query_triples(step, resources)
+        if not query_triples:
+            raise ValueError(f"Generated step {step_id} did not produce a query action")
+        lexical_scores = tfidf.scores(query_text)
+        scores = score_query_clip_ids(
+            query_triples=query_triples,
+            clip_ids=clip_ids,
+            lexical_scores=lexical_scores,
+            resources=resources,
+            hybrid_alpha=FROZEN_HYBRID_ALPHA,
+        )
+
+        used_clip_ids: set[str] = set()
+        pair_specs: list[tuple[str, ClipRecord]] = []
+        within = _closest_within_video(target, clips)
+        if within is not None:
+            pair_specs.append(("within-video-adjacent", within))
+            used_clip_ids.add(within.clip_id)
+        lexical = _ranked_distractor(
+            target=target,
+            clips=clips,
+            scores=scores,
+            score_name="lexical_score",
+            used_clip_ids=used_clip_ids,
+        )
+        if lexical is not None:
+            pair_specs.append(("lexical-hard-negative", lexical))
+            used_clip_ids.add(lexical.clip_id)
+        structured = _ranked_distractor(
+            target=target,
+            clips=clips,
+            scores=scores,
+            score_name="structured_score",
+            used_clip_ids=used_clip_ids,
+        )
+        if structured is not None:
+            pair_specs.append(("structured-hard-negative", structured))
+            used_clip_ids.add(structured.clip_id)
+        contrast = _action_contrast_distractor(
+            target=target,
+            target_triple=target_triple,
+            clips=clips,
+            title_triples=title_triples,
+            lexical_scores=lexical_scores,
+            used_clip_ids=used_clip_ids,
+        )
+        if contrast is not None:
+            pair_specs.append(("same-object-different-action", contrast))
+            used_clip_ids.add(contrast.clip_id)
+
+        if len(pair_specs) < 3:
+            raise ValueError(
+                f"Could not construct at least three distinct hard negatives for {step_id}"
+            )
+        step_rows.append(step)
+        for pair_type, distractor in pair_specs:
+            pair_number += 1
+            pair_type_occurrences[pair_type] += 1
+            winner_position = (
+                "A" if pair_type_occurrences[pair_type] % 2 else "B"
+            )
+            target_reference = (
+                _timestamp_reference(target)
+                if pair_number % 2
+                else {"clip_id": target.clip_id}
+            )
+            distractor_reference = (
+                {"clip_id": distractor.clip_id}
+                if pair_number % 2
+                else _timestamp_reference(distractor)
+            )
+            if winner_position == "A":
+                clip_a_reference, clip_b_reference = target_reference, distractor_reference
+                clip_a, clip_b = target, distractor
+            else:
+                clip_a_reference, clip_b_reference = distractor_reference, target_reference
+                clip_a, clip_b = distractor, target
+            comparison_id = f"controlled-development-pair-{pair_number:04d}"
+            provenance = f"synthetic_{pair_type.replace('-', '_')}_target_rule_v1"
+            rationale = (
+                "Constructed label: the winner is the canonical target used to define "
+                "the step; the alternative is a selected hard negative."
+            )
+            pair_rows.append(
+                {
+                    "comparison_id": comparison_id,
+                    "step_id": step_id,
+                    "clip_a": clip_a_reference,
+                    "clip_b": clip_b_reference,
+                    "winner_position": winner_position,
+                    "winner_clip_id": target.clip_id,
+                    "judge_provenance": provenance,
+                    "judge_confidence": SYNTHETIC_CONFIDENCE,
+                    "judge_id": CONTROLLED_GENERATOR_VERSION,
+                    "synthetic": True,
+                    "development_only": True,
+                    "synthetic_pair_type": pair_type,
+                    "adjudication_basis": "metadata-derived target rule; no human review",
+                    "synthetic_label_rationale": rationale,
+                }
+            )
+            audit_rows.append(
+                {
+                    "comparison_id": comparison_id,
+                    "step_id": step_id,
+                    "step_title": target.title,
+                    "controlled_action": target_triple.action_lemma,
+                    "controlled_objects": "; ".join(target_triple.object_lemmas),
+                    "pair_type": pair_type,
+                    **_clip_audit_fields("clip_a", clip_a),
+                    **_clip_audit_fields("clip_b", clip_b),
+                    "winner_position": winner_position,
+                    "winner_clip_id": target.clip_id,
+                    "judge_provenance": provenance,
+                    "judge_confidence": SYNTHETIC_CONFIDENCE,
+                    "adjudication_basis": "metadata-derived target rule; no human review",
+                    "synthetic_label_rationale": rationale,
+                }
+            )
+
+    write_jsonl(paths["steps"], step_rows)
+    write_jsonl(paths["pairs"], pair_rows)
+    write_csv(paths["audit"], audit_rows)
+    _write_controlled_notice(
+        paths["notice"],
+        step_count=len(step_rows),
+        pair_count=len(pair_rows),
+        seed=seed,
+    )
+    pair_type_counts: dict[str, int] = dict(
+        sorted(
+            (pair_type, sum(row["synthetic_pair_type"] == pair_type for row in pair_rows))
+            for pair_type in {row["synthetic_pair_type"] for row in pair_rows}
+        )
+    )
+    manifest = build_manifest(
+        command="generate-controlled-pairs",
+        input_files=[
+            index_artifacts.clips_jsonl,
+            index_artifacts.month1_dir / "action_object_tool_triples.jsonl",
+        ],
+        output_files=[paths["steps"], paths["pairs"], paths["audit"], paths["notice"]],
+        parameters={
+            "generator_version": CONTROLLED_GENERATOR_VERSION,
+            "synthetic": True,
+            "development_only": True,
+            "human_judgments": False,
+            "research_evidence": False,
+            "seed": seed,
+            "step_count": len(step_rows),
+            "target_video_count": len({str(target.video_id) for target in targets}),
+            "target_category_count": len({_category_name(target) for target in targets}),
+            "pair_count": len(pair_rows),
+            "pair_type_counts": pair_type_counts,
+            "hybrid_alpha_lexical": FROZEN_HYBRID_ALPHA,
+            "selection_uses_frozen_scores": True,
+            "label_rule": "target clip used to define each step wins",
+            "judge_confidence": SYNTHETIC_CONFIDENCE,
+            "index_root": str(index_artifacts.root),
+        },
+    )
+    manifest["schema_version"] = "controlled-preference-generation.v1"
     paths["manifest"].write_text(
         json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
         encoding="utf-8",

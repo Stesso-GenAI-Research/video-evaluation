@@ -141,6 +141,49 @@ Run the frozen evaluator on the generated inputs with:
   --seed 42
 ```
 
+### Generate a controlled hard-negative development set
+
+The random synthetic corpus primarily verifies input and resolution behavior.
+For error-analysis development, generate a larger controlled corpus:
+
+```bash
+./scripts/run_local_pipeline.sh generate-controlled-pairs \
+  --index project1_outputs/indexed-video-sample \
+  --output project1_outputs/controlled-preference-development \
+  --step-count 100 \
+  --seed 42
+```
+
+For each selected target, this command attempts to construct comparisons
+against four candidate classes:
+
+- the closest timestamped clip from the same source video;
+- a high-scoring lexical candidate from another video;
+- a high-scoring structured candidate from another video; and
+- a title that contains the same parsed object with a different action.
+
+Targets are distributed across source categories and source videos. Step text
+uses the target title plus a bounded tool/material inventory. Each row records
+its candidate-selection class, metadata-derived label rule, and development-only
+status. The readable audit CSV contains both titles and canonical intervals.
+
+The target is still assigned as the winner by construction. Candidate selection
+uses the same annotations and frozen scorers that are later evaluated, so the
+result is selection-biased and must not be reported as preference evidence. It
+is more useful than random distractors for exercising action/object error cases,
+but it is not human-adjudicated data.
+
+Evaluate the controlled corpus with:
+
+```bash
+./scripts/run_local_pipeline.sh evaluate-pairs \
+  --index project1_outputs/indexed-video-sample \
+  --steps project1_outputs/controlled-preference-development/steps.jsonl \
+  --pairs project1_outputs/controlled-preference-development/pairwise.jsonl \
+  --output project1_outputs/controlled-preference-development/step1 \
+  --seed 42
+```
+
 ## Outputs
 
 The output directory contains:

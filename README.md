@@ -29,6 +29,7 @@ The repository compares three methods:
 | Compare two result lists | Working for one query; batch mode is ready for supplied old results |
 | Make a blinded review sheet | Working and protected from accidental overwrite |
 | Evaluate already-judged A/B pairs | Working; frozen direct scoring and step-clustered intervals are ready for W25 |
+| Build controlled hard-negative development pairs | Working; metadata-derived labels are diagnostic only |
 | Run an automatic benchmark | Working as a development test |
 | Prove the new search is better | **Not complete; the real W25 preference export is still needed** |
 
@@ -91,10 +92,12 @@ are already about the same topic than for searching the entire corpus alone.
 
 ## What comes next
 
-The immediate milestone is the frozen pairwise-preference evaluation on the
-real W25 export. The command and contracts are ready; the remaining external
-input is the indexed videos, project steps, and already-observed A/B judgments.
-Synthetic fixtures verify the machinery but are not research evidence.
+The immediate milestone remains the frozen pairwise-preference evaluation on
+the real W25 export. A controlled hard-negative corpus can now exercise
+action/object disagreements and downstream error-analysis plumbing while that
+export is unavailable. Its labels are assigned from source metadata and are not
+human preference evidence. The remaining external input is the indexed videos,
+project steps, and already-observed A/B judgments.
 
 ## Documentation
 

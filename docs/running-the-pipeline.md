@@ -49,6 +49,7 @@ review worksheet. Those activities require a query or a human decision.
 | `compare` | Describe differences between two rankings for one query. |
 | `compare-batch` | Compare many supplied old rankings and make a blind worksheet. |
 | `generate-synthetic-pairs` | Create labeled development-only preference inputs. |
+| `generate-controlled-pairs` | Create action/object-focused hard-negative development inputs. |
 | `evaluate-pairs` | Directly score already-judged A/B pairs for frozen Step 1. |
 | `score-review` | Score a completed old-versus-new worksheet. |
 | `benchmark` | Run the automatic field-pair development benchmark. |
@@ -158,7 +159,8 @@ The command writes `pair_scores.jsonl`, `summary.json`, `summary.md`,
 frozen; only the bootstrap seed and number of bootstrap iterations are run
 controls. See the dedicated
 [pairwise-preference guide](pairwise-preference-evaluation.md) for the current
-contracts, built-index form, resolution policy, and interpretation.
+contracts, built-index form, resolution policy, controlled development-data
+commands, and interpretation.
 
 ## Completing a blinded review
 

@@ -12,7 +12,7 @@ COMMAND="${1:-all}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|compare-batch|generate-synthetic-pairs|evaluate-pairs|score-review|benchmark|review|all]
+Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|compare-batch|generate-synthetic-pairs|generate-controlled-pairs|evaluate-pairs|score-review|benchmark|review|all]
 
   setup   Create a Python 3.11-3.13 virtual environment and install dependencies.
   test    Compile the project, run pytest, run Ruff, and show CLI help.
@@ -22,6 +22,7 @@ Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|c
   compare Diff an explicit old/lexical set against structured or hybrid search.
   compare-batch  Compare a JSONL file of real original rankings and make a blind review CSV.
   generate-synthetic-pairs  Make target-derived development steps and A/B pseudo-labels.
+  generate-controlled-pairs Make action/object-focused hard-negative development pairs.
   evaluate-pairs Score already-judged A/B clips with the frozen Step 1 evaluation.
   score-review   Score the completed batch-comparison blind review worksheet.
   benchmark Run the field-held-out lexical/structured/hybrid experiment.
@@ -230,6 +231,11 @@ generate_synthetic_pairs() {
   "$VENV_DIR/bin/action-semantics" generate-synthetic-pairs "${@:2}"
 }
 
+generate_controlled_pairs() {
+  ensure_environment
+  "$VENV_DIR/bin/action-semantics" generate-controlled-pairs "${@:2}"
+}
+
 case "$COMMAND" in
   setup) setup ;;
   test) run_tests ;;
@@ -238,6 +244,7 @@ case "$COMMAND" in
   compare) compare_sample "$@" ;;
   compare-batch) compare_batch_sample "$@" ;;
   generate-synthetic-pairs) generate_synthetic_pairs "$@" ;;
+  generate-controlled-pairs) generate_controlled_pairs "$@" ;;
   evaluate-pairs) evaluate_pairs "$@" ;;
   score-review) score_batch_review_sample "$@" ;;
   review) summarize_review ;;

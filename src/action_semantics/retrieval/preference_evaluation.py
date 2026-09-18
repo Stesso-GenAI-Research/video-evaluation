@@ -790,6 +790,7 @@ def evaluate_preference_pairs(
             "judge_provenance": pair.judge_provenance,
             "judge_confidence": pair.judge_confidence,
             "judge_id": pair.judge_id,
+            "input_metadata": dict(pair.model_extra or {}),
             "source_row_sha256": pair.source_row_sha256,
             "effective_hybrid_alpha_lexical": None,
         }
