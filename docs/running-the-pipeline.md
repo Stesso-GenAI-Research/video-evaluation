@@ -48,6 +48,7 @@ review worksheet. Those activities require a query or a human decision.
 | `search` | Search the canonical clips with one of the three methods. |
 | `compare` | Describe differences between two rankings for one query. |
 | `compare-batch` | Compare many supplied old rankings and make a blind worksheet. |
+| `generate-synthetic-pairs` | Create labeled development-only preference inputs. |
 | `evaluate-pairs` | Directly score already-judged A/B pairs for frozen Step 1. |
 | `score-review` | Score a completed old-versus-new worksheet. |
 | `benchmark` | Run the automatic field-pair development benchmark. |

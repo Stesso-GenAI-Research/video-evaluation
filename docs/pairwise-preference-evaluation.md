@@ -107,6 +107,40 @@ SAMPLE_OUTPUT_DIR=project1_outputs/w25/index \
 Building first is optional; do not create another intermediate format solely
 for this evaluator.
 
+### Generate development-only pseudo-judgments
+
+When real judgments are unavailable, a separate command can create deterministic
+target-derived data from an existing index:
+
+```bash
+./scripts/run_local_pipeline.sh generate-synthetic-pairs \
+  --index project1_outputs/indexed-video-sample \
+  --output project1_outputs/synthetic-preference-development \
+  --step-count 40 \
+  --seed 42
+```
+
+It writes `steps.jsonl`, `pairwise.jsonl`, a readable `pair_audit.csv`, a data
+notice, and a generation manifest. Each synthetic step copies one target clip's
+metadata, and that target is declared the winner against one within-video and
+one cross-video distractor. Winner positions alternate between A and B.
+
+This intentional answer leakage makes the files useful for integration tests,
+output development, and later-analysis plumbing—but invalid for scientific
+claims. Every row and artifact is marked synthetic; neither provenance value
+claims to be a human or production cascade judgment.
+
+Run the frozen evaluator on the generated inputs with:
+
+```bash
+./scripts/run_local_pipeline.sh evaluate-pairs \
+  --index project1_outputs/indexed-video-sample \
+  --steps project1_outputs/synthetic-preference-development/steps.jsonl \
+  --pairs project1_outputs/synthetic-preference-development/pairwise.jsonl \
+  --output project1_outputs/synthetic-preference-development/step1 \
+  --seed 42
+```
+
 ## Outputs
 
 The output directory contains:

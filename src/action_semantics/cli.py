@@ -22,6 +22,7 @@ from .retrieval.benchmark import run_field_heldout_benchmark
 from .retrieval.preference_evaluation import run_preference_evaluation
 from .retrieval.search import rank_indexed_clips, write_search_results
 from .sample_analysis import run_indexed_video_analysis as run_indexed_video_analysis_impl
+from .synthetic_preferences import generate_synthetic_preferences
 from .verification import verify_output_repository, verify_structured_analysis
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -399,6 +400,30 @@ def evaluate_pairs(
     )
     info(f"Pairwise preference evaluation complete. Summary: {paths['summary']}")
     info(f"Pair-level scores: {paths['pair_scores']}")
+
+
+@app.command("generate-synthetic-pairs")
+def generate_synthetic_pairs(
+    index: Annotated[
+        Path,
+        typer.Option("--index", exists=True, readable=True),
+    ],
+    output: Annotated[Path, typer.Option("--output")],
+    step_count: Annotated[int, typer.Option("--step-count", min=2)] = 40,
+    seed: Annotated[int, typer.Option("--seed")] = DEFAULT_RANDOM_SEED,
+    overwrite: Annotated[bool, typer.Option("--overwrite")] = False,
+) -> None:
+    """Generate clearly labeled synthetic steps and A/B pseudo-judgments."""
+    paths = generate_synthetic_preferences(
+        index=index,
+        output_dir=output,
+        step_count=step_count,
+        seed=seed,
+        overwrite=overwrite,
+    )
+    info(f"Synthetic steps written to {paths['steps']}")
+    info(f"Synthetic pairwise comparisons written to {paths['pairs']}")
+    info(f"Readable pair audit written to {paths['audit']}")
 
 
 @app.command("score-review")

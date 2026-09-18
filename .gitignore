@@ -159,6 +159,7 @@ venv.bak/
 
 # Private research exports and derived local analysis artifacts
 indexed-videos-*.jsonl
+!tests/fixtures/preference_evaluation/indexed-videos-synthetic.jsonl
 project1_outputs/
 .DS_Store
 
