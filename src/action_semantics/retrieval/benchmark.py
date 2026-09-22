@@ -26,6 +26,10 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from action_semantics.extraction.triples import extract_triples
 from action_semantics.io_utils import read_clips, sha256_file, write_csv
 from action_semantics.models import ActionTriple, ClipRecord, TextSegment
+from action_semantics.month1 import add_record_inventories
+from action_semantics.terminology import (
+    normalize_terminology, normalize_triple, terminology_provenance,
+)
 from action_semantics.retrieval.scorers import (
     STRUCTURED_SCORER_VERSION,
     StructuredResources,
@@ -43,7 +47,9 @@ METHODS = ("lexical_tfidf", "structured_action", "hybrid")
 PRIMARY_METRICS = ("hit_at_1", "hit_at_3", "hit_at_10", "mean_reciprocal_rank")
 
 
-def _metadata_inventory(clip: ClipRecord, key: str) -> list[str]:
+def _metadata_inventory(
+    clip: ClipRecord, key: str, *, include_alternatives: bool = True,
+) -> list[str]:
     metadata = clip.gemini_metadata.get("clip", {})
     if not isinstance(metadata, dict):
         return []
@@ -61,18 +67,18 @@ def _metadata_inventory(clip: ClipRecord, key: str) -> list[str]:
             if isinstance(item.get("name"), str):
                 output.append(item["name"])
             alternatives = item.get("alternatives", [])
-            if isinstance(alternatives, list):
+            if include_alternatives and isinstance(alternatives, list):
                 output.extend(value for value in alternatives if isinstance(value, str))
     return list(dict.fromkeys(output))
 
 
-def _candidate_text(clip: ClipRecord) -> str:
+def _candidate_text(clip: ClipRecord, *, include_alternatives: bool = True) -> str:
     """Return exactly the candidate fields shared by every benchmark method."""
     values = [
         clip.description,
         clip.summary,
-        *_metadata_inventory(clip, "tools"),
-        *_metadata_inventory(clip, "supplies"),
+        *_metadata_inventory(clip, "tools", include_alternatives=include_alternatives),
+        *_metadata_inventory(clip, "supplies", include_alternatives=include_alternatives),
     ]
     return " ".join(
         value.strip() for value in values if isinstance(value, str) and value.strip()
@@ -367,6 +373,8 @@ def run_field_heldout_benchmark(
     output_dir: Path,
     spacy_model: str,
     hybrid_alpha: float = 0.5,
+    terminology: bool = False,
+    primary_inventory_only: bool = False,
 ) -> dict[str, Path]:
     """Compare lexical, structured, and hybrid retrieval on aligned fields."""
     if not 0.0 <= hybrid_alpha <= 1.0:
@@ -440,10 +448,33 @@ def run_field_heldout_benchmark(
             "No direct-leakage-controlled candidate also had a parseable title action."
         )
 
-    documents = [_candidate_text(clip) for clip in candidates]
+    # Freeze eligibility before normalization, retaining the same query cohort.
+    documents = [
+        _candidate_text(clip, include_alternatives=not primary_inventory_only)
+        for clip in candidates
+    ]
+    query_texts = [clip.title or "" for clip in queries]
+    terminology_leakage_ids = []
+    if primary_inventory_only:
+        candidate_triples = add_record_inventories(
+            candidate_triples, candidates, [], include_alternatives=False
+        )
+    if terminology:
+        documents = [normalize_terminology(text) for text in documents]
+        query_texts = [normalize_terminology(text) for text in query_texts]
+        by_id = dict(zip(candidate_ids, documents, strict=True))
+        terminology_leakage_ids = [
+            clip.clip_id for clip, text in zip(queries, query_texts, strict=True)
+            if _normalized_phrase_occurs(text, by_id[clip.clip_id])
+        ]
+        candidate_triples = [normalize_triple(row) for row in candidate_triples]
+        query_triples_by_id = {
+            key: [normalize_triple(row) for row in values]
+            for key, values in query_triples_by_id.items()
+        }
     vectorizer = TfidfVectorizer(lowercase=True, ngram_range=(1, 2))
     candidate_matrix = vectorizer.fit_transform(documents)
-    query_matrix = vectorizer.transform([clip.title or "" for clip in queries])
+    query_matrix = vectorizer.transform(query_texts)
     lexical_matrix = (query_matrix @ candidate_matrix.T).toarray()
 
     resources = StructuredResources(
@@ -584,6 +615,8 @@ def run_field_heldout_benchmark(
     summary = {
         "schema_version": "benchmark.v3",
         "benchmark": BENCHMARK_NAME,
+        "terminology": terminology_provenance(terminology, primary_inventory_only),
+        "normalized_exact_phrase_query_ids": terminology_leakage_ids,
         "ground_truth": "weak field alignment: query clip name -> same timestamped clip",
         "query_field": "clip.name/title",
         "candidate_fields": [
@@ -635,7 +668,8 @@ def run_field_heldout_benchmark(
             "The known target comes from field alignment, not a separate human judgment.",
             "Results describe narrative candidates after direct-title and exact-phrase controls.",
             "Clip names and descriptions were jointly generated and can still share partial wording or paraphrases.",
-            "Descriptions, goals, tools, and supplies may contain model-generated annotation noise.",
+            "Human-generated annotations may contain inconsistent terminology or missing fields.",
+            "Normalization keeps baseline query eligibility; new exact phrase matches are reported separately.",
             "The exploratory taxonomy is diagnostic-only and does not affect the structured score.",
             "A human-labeled comparison is still required to decide whether new matches are better.",
         ],

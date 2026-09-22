@@ -187,7 +187,7 @@ def test_public_search_ranks_results_and_applies_video_diversity(tmp_path, monke
     )
     monkeypatch.setattr(
         "action_semantics.retrieval.search.tfidf_scores",
-        lambda *_: {"best": 0.9, "same-video": 0.8, "other-video": 0.7},
+        lambda *_, **__: {"best": 0.9, "same-video": 0.8, "other-video": 0.7},
     )
 
     result = rank_indexed_clips(
@@ -221,7 +221,7 @@ def test_hybrid_search_falls_back_to_lexical_when_query_parse_fails(
         lambda *_: StructuredResources(triples=[], verbnet=[], framenet=[], taxonomy=[]),
     )
     monkeypatch.setattr(
-        "action_semantics.retrieval.search.tfidf_scores", lambda *_: {"clip-1": 0.8}
+        "action_semantics.retrieval.search.tfidf_scores", lambda *_, **__: {"clip-1": 0.8}
     )
 
     result = rank_indexed_clips(
@@ -262,7 +262,7 @@ def test_search_retries_known_verb_as_terse_imperative(tmp_path, monkeypatch):
         "action_semantics.retrieval.search.resources_from_files", lambda *_: resources
     )
     monkeypatch.setattr(
-        "action_semantics.retrieval.search.tfidf_scores", lambda *_: {"paint": 0.5}
+        "action_semantics.retrieval.search.tfidf_scores", lambda *_, **__: {"paint": 0.5}
     )
 
     result = rank_indexed_clips(

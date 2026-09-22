@@ -33,7 +33,9 @@ def _inventory_terms(values: list[str]) -> list[str]:
     return sorted(terms)
 
 
-def _clip_inventory(clip: ClipRecord) -> tuple[list[str], list[str]]:
+def _clip_inventory(
+    clip: ClipRecord, *, include_alternatives: bool = True,
+) -> tuple[list[str], list[str]]:
     metadata = clip.gemini_metadata.get("clip", {})
     if not isinstance(metadata, dict):
         return [], []
@@ -50,7 +52,7 @@ def _clip_inventory(clip: ClipRecord) -> tuple[list[str], list[str]]:
                 if isinstance(item.get("name"), str):
                     output.append(item["name"])
                 alternatives = item.get("alternatives", [])
-                if isinstance(alternatives, list):
+                if include_alternatives and isinstance(alternatives, list):
                     output.extend(
                         value for value in alternatives if isinstance(value, str)
                     )
@@ -66,11 +68,15 @@ def add_record_inventories(
     triples: list[ActionTriple],
     clips: list[ClipRecord],
     steps: list[StepRecord],
+    *,
+    include_alternatives: bool = True,
 ) -> list[ActionTriple]:
     """Attach record-level tools/materials without calling them direct dependencies."""
     inventories: dict[tuple[str, str], tuple[list[str], list[str]]] = {}
     for clip in clips:
-        inventories[("clip", clip.clip_id)] = _clip_inventory(clip)
+        inventories[("clip", clip.clip_id)] = _clip_inventory(
+            clip, include_alternatives=include_alternatives
+        )
     for step in steps:
         inventories[("step", step.step_id)] = (
             _inventory_terms(step.tools),

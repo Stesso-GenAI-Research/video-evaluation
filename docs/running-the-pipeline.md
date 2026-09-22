@@ -103,6 +103,14 @@ Useful options are:
 | `--top-k N` | Request up to *N* positive-score results. |
 | `--max-per-video N` | Limit how many results may come from one source video. |
 | `--hybrid-alpha X` | Give fraction *X* to lexical search and `1-X` to structured search. |
+| `--terminology` | Enable conservative noun alias normalization on both sides of matching. |
+| `--primary-inventory-only` | Exclude explicit substitute lists from inventory evidence. |
+
+The two terminology-related options default off and also work with `benchmark`.
+The inventory parser cleanup is always active when rebuilding an index.
+See [normalization results and reproduction commands](terminology-normalization.md)
+for the separate experimental runs; normalization has not shown an aggregate
+Hit@1 improvement on the current benchmark.
 
 `--hybrid-alpha` must be from 0 to 1 and defaults to 0.5. A query can return
 fewer than *k* clips when fewer than *k* receive a positive score. The program

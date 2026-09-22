@@ -274,6 +274,8 @@ def search(
     hybrid_alpha: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.5,
     max_per_video: Annotated[int | None, typer.Option(min=1)] = None,
     spacy_model: Annotated[str, typer.Option()] = DEFAULT_SPACY_MODEL,
+    terminology: Annotated[bool, typer.Option(help="Use conservative noun aliases.")] = False,
+    primary_inventory_only: Annotated[bool, typer.Option(help="Exclude listed substitutes from inventory evidence.")] = False,
 ) -> None:
     """Search the canonical clip corpus with lexical, structured, or hybrid rank."""
     results = rank_indexed_clips(
@@ -286,6 +288,8 @@ def search(
         method=method.value,
         hybrid_alpha=hybrid_alpha,
         max_per_video=max_per_video,
+        terminology=terminology,
+        primary_inventory_only=primary_inventory_only,
     )
     if output_json is not None:
         write_search_results(output_json, results)
@@ -333,6 +337,8 @@ def benchmark(
     output_dir: Annotated[Path, typer.Option()],
     hybrid_alpha: Annotated[float, typer.Option(min=0.0, max=1.0)] = 0.5,
     spacy_model: Annotated[str, typer.Option()] = DEFAULT_SPACY_MODEL,
+    terminology: Annotated[bool, typer.Option(help="Evaluate the terminology challenger on baseline queries.")] = False,
+    primary_inventory_only: Annotated[bool, typer.Option(help="Exclude listed substitutes from inventory evidence.")] = False,
 ) -> None:
     """Run a title-to-description benchmark without candidate-title leakage."""
     paths = run_field_heldout_benchmark(
@@ -342,6 +348,8 @@ def benchmark(
         output_dir=output_dir,
         spacy_model=spacy_model,
         hybrid_alpha=hybrid_alpha,
+        terminology=terminology,
+        primary_inventory_only=primary_inventory_only,
     )
     info(f"Benchmark complete. Summary written to {paths['summary']}")
 

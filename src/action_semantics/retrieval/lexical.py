@@ -9,6 +9,7 @@ from typing import Any
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from action_semantics.models import ClipRecord
+from action_semantics.terminology import normalize_terminology
 
 
 PRODUCTION_CANDIDATE_FIELDS = [
@@ -36,6 +37,8 @@ class TfidfIndex:
     clip_ids: list[str]
     vectorizer: TfidfVectorizer
     candidate_matrix: Any
+    terminology: bool = False
+    primary_inventory_only: bool = False
 
     @classmethod
     def from_clips(
@@ -43,8 +46,15 @@ class TfidfIndex:
         clips: list[ClipRecord],
         *,
         documents: list[str] | None = None,
+        terminology: bool = False,
+        primary_inventory_only: bool = False,
     ) -> "TfidfIndex":
-        candidate_documents = documents or [production_candidate_text(clip) for clip in clips]
+        candidate_documents = documents if documents is not None else [
+            production_candidate_text(clip, include_alternatives=not primary_inventory_only)
+            for clip in clips
+        ]
+        if terminology:
+            candidate_documents = [normalize_terminology(text) for text in candidate_documents]
         if len(candidate_documents) != len(clips):
             raise ValueError("The number of TF-IDF documents must equal the number of clips.")
         vectorizer = TfidfVectorizer(**PRODUCTION_TFIDF_SETTINGS)
@@ -53,9 +63,13 @@ class TfidfIndex:
             clip_ids=[clip.clip_id for clip in clips],
             vectorizer=vectorizer,
             candidate_matrix=candidate_matrix,
+            terminology=terminology,
+            primary_inventory_only=primary_inventory_only,
         )
 
     def scores(self, query_text: str) -> dict[str, float]:
+        if self.terminology:
+            query_text = normalize_terminology(query_text)
         query_vector = self.vectorizer.transform([query_text])
         scores = (self.candidate_matrix @ query_vector.T).toarray().ravel()
         return {
@@ -68,7 +82,7 @@ def _strings(values: Iterable[object]) -> list[str]:
     return [value.strip() for value in values if isinstance(value, str) and value.strip()]
 
 
-def production_candidate_text(clip: ClipRecord) -> str:
+def production_candidate_text(clip: ClipRecord, *, include_alternatives: bool = True) -> str:
     """Build the documented text view used by production lexical search."""
     clip_metadata = clip.gemini_metadata.get("clip", {})
     video_metadata = clip.gemini_metadata.get("source_video", {})
@@ -88,7 +102,7 @@ def production_candidate_text(clip: ClipRecord) -> str:
                     continue
                 inventory.append(item.get("name"))
                 alternatives = item.get("alternatives", [])
-                if isinstance(alternatives, list):
+                if include_alternatives and isinstance(alternatives, list):
                     inventory.extend(alternatives)
     category = video_metadata.get("category")
     category_name = category.get("name") if isinstance(category, dict) else category
@@ -114,8 +128,13 @@ def tfidf_scores(
     clips: list[ClipRecord],
     *,
     documents: list[str] | None = None,
+    terminology: bool = False,
+    primary_inventory_only: bool = False,
 ) -> dict[str, float]:
     """Fit a deterministic candidate-only TF-IDF baseline and score one query."""
     if not clips:
         return {}
-    return TfidfIndex.from_clips(clips, documents=documents).scores(query_text)
+    return TfidfIndex.from_clips(
+        clips, documents=documents, terminology=terminology,
+        primary_inventory_only=primary_inventory_only,
+    ).scores(query_text)

@@ -3,7 +3,101 @@
 Audited September 22, 2026. Source annotations are authentic human-generated
 data. Authorship and terminology consistency are separate properties.
 
+## Implemented fixes and measured results
+
+The inventory parser now respects parentheses/brackets when splitting lists,
+preserves commas inside usage notes, and removes standalone placeholder labels
+from parsed names while retaining raw source text. On the complete rebuilt
+sample, unbalanced-parenthesis flags fell from **111 to 0** and placeholder-name
+flags from **91 to 0**. All **1,663 canonical clip IDs** remain present. One
+remaining annotation-marker flag is a parenthetical usage note, retained for
+review rather than discarded. Missing descriptions/goals remain missing.
+
+`src/action_semantics/terminology.py` activates nine conservative aliases:
+gypsum board/plasterboard → drywall; measuring tape → tape measure;
+crescent wrench/adjustable spanner → adjustable wrench; shop vac → shop vacuum;
+mitre saw → miter saw; Allen key/Allen wrench → hex key. Original annotations
+remain intact. The broader seed JSON below is still a proposal; ambiguous
+brands, generic tap/mud, action synonyms and end states are not activated.
+
+Search and benchmark accept two independent options:
+
+- `--terminology`: apply those aliases to both lexical query/candidate text
+  and structured object/tool/material terms.
+- `--primary-inventory-only`: exclude explicit substitute lists from inventory
+  evidence, retaining the lists in metadata. This does not claim that every
+  mentioned primary item was observed in the video.
+
+Both are opt-in, and settings plus a normalizer code hash appear in outputs.
+The existing pairwise evaluation does not enable either option. Parser changes
+invalidate index freshness through the existing build-code hash.
+
+All runs used the same **462 queries and 582 candidates**, including the same
+ordered query cohort as the original benchmark. There were **zero newly exact
+normalized query/target phrase matches**.
+
+| Run | Lexical Hit@1 | Structured Hit@1 | Hybrid Hit@1 | Lexical Hit@3 |
+|---|---:|---:|---:|---:|
+| Original | 63.20% | 26.43% | 50.65% | 85.50% |
+| Parser cleanup only | 63.20% | 26.43% | 50.65% | 85.50% |
+| Cleanup + aliases | 63.20% | 26.43% | 50.65% | 85.50% |
+| Cleanup + primary inventory only | 61.90% | 26.36% | 50.65% | 86.36% |
+| Cleanup + both options | 61.47% | 26.36% | 50.65% | 86.36% |
+
+Aliases alone moved `Measure Stair Angle` from rank 1 to 2 and `Measure and
+Square the Frame` from 2 to 1 for lexical retrieval. Their net Hit@1 change is
+zero; the source-video-clustered 95% interval is approximately [-0.62, +0.65]
+percentage points. The combined change is -1.73 points, interval [-3.66, +0.21].
+These are development results, not evidence of an overall accuracy improvement
+or statistical equivalence. Removing alternatives explains most of the observed
+combined drop, which is why it is a separate option rather than the default.
+
+Artifacts are under `project1_outputs/terminology-cleaned-index/`:
+`benchmark-baseline/`, `benchmark-aliases/`, `benchmark-primary/`,
+`benchmark-combined/`, and `terminology-comparison.json`. The original index and
+saved baseline results were retained. The initial combined pilot output in
+`benchmark-normalized/` is superseded by these explicitly separated runs.
+
+Run normalized search against the rebuilt index:
+
+```bash
+SAMPLE_OUTPUT_DIR=project1_outputs/terminology-cleaned-index \
+  ./scripts/run_local_pipeline.sh search "cut gypsum board" \
+  --method lexical --terminology
+```
+
+Reproduce the clean index and the four experiment arms:
+
+```bash
+SAMPLE_OUTPUT_DIR=project1_outputs/terminology-cleaned-index \
+  ./scripts/run_local_pipeline.sh build
+
+for arm in baseline aliases primary combined; do
+  flags=()
+  case "$arm" in
+    aliases) flags=(--terminology) ;;
+    primary) flags=(--primary-inventory-only) ;;
+    combined) flags=(--terminology --primary-inventory-only) ;;
+  esac
+  .venv/bin/action-semantics benchmark \
+    --clips-jsonl project1_outputs/terminology-cleaned-index/input/indexed_video_clips.jsonl \
+    --month1-dir project1_outputs/terminology-cleaned-index/month1 \
+    --month2-dir project1_outputs/terminology-cleaned-index/month2 \
+    --output-dir "project1_outputs/terminology-cleaned-index/benchmark-$arm" \
+    "${flags[@]}"
+done
+```
+
+Regression coverage includes real inventory delimiter cases, preserved raw
+evidence and attributes, every active alias in both matching directions,
+false-merge cases, unchanged negation/action direction, and substitute exclusion.
+Next: expand contextual vocabulary using independently reviewed synonym queries;
+resolve ambiguous item roles and missing end-state evidence through source
+review, without inferring them solely from word similarity.
+
 ## Findings from the complete local dataset
+
+The counts below describe the original index before these fixes.
 
 The audit reads all 250 source videos / 1,703 raw annotations and all 1,663
 canonical clips. Counts below use the canonical index unless explicitly marked

@@ -9,6 +9,8 @@ from typing import Any, Literal
 from action_semantics.extraction.triples import extract_triples
 from action_semantics.io_utils import read_clips, sha256_file
 from action_semantics.models import TextSegment
+from action_semantics.month1 import add_record_inventories
+from action_semantics.terminology import normalize_triple, terminology_provenance
 from action_semantics.retrieval.lexical import (
     PRODUCTION_CANDIDATE_FIELDS,
     PRODUCTION_TFIDF_SETTINGS,
@@ -109,6 +111,8 @@ def rank_indexed_clips(
     preloaded_tfidf: TfidfIndex | None = None,
     preloaded_resources: StructuredResources | None = None,
     precomputed_clips_sha256: str | None = None,
+    terminology: bool = False,
+    primary_inventory_only: bool = False,
 ) -> dict[str, Any]:
     """Rank clips and return a stable, explainable search response.
 
@@ -129,10 +133,16 @@ def rank_indexed_clips(
         raise ValueError("max_per_video must be at least 1 when provided.")
 
     clips = preloaded_clips if preloaded_clips is not None else read_clips(clips_jsonl)
+    if preloaded_tfidf is not None and (
+        preloaded_tfidf.terminology != terminology
+        or preloaded_tfidf.primary_inventory_only != primary_inventory_only
+    ):
+        raise ValueError("Preloaded TF-IDF terminology/inventory settings do not match this search.")
     lexical = (
         preloaded_tfidf.scores(query_text)
         if preloaded_tfidf is not None
-        else tfidf_scores(query_text, clips)
+        else tfidf_scores(query_text, clips, terminology=terminology,
+                          primary_inventory_only=primary_inventory_only)
     )
     warnings: list[str] = []
     base: StructuredResources | None = preloaded_resources
@@ -143,6 +153,16 @@ def rank_indexed_clips(
     query_triples, fallback_text = parse_query_triples(
         query_text, spacy_model, known_verbs=known_verbs
     )
+    if terminology:
+        query_triples = [normalize_triple(row) for row in query_triples]
+    if base is not None and (terminology or primary_inventory_only):
+        triples = base.triples
+        if primary_inventory_only:
+            triples = add_record_inventories(triples, clips, [], include_alternatives=False)
+        base = StructuredResources(
+            triples=[normalize_triple(row) for row in triples] if terminology else triples,
+            verbnet=base.verbnet, framenet=base.framenet, taxonomy=base.taxonomy,
+        )
     if fallback_text is not None:
         warnings.append(
             "The parser treated the terse query as a noun phrase, so search retried "
@@ -252,6 +272,7 @@ def rank_indexed_clips(
             ),
         },
         "requested_method": method,
+        "terminology": terminology_provenance(terminology, primary_inventory_only),
         "method": (
             "lexical_fallback"
             if method == "hybrid" and not query_triples

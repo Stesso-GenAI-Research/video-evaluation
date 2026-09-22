@@ -94,6 +94,33 @@ class _CanonicalizationResult:
     profile: dict[str, Any]
 
 
+def _split_inventory(text: str, *, annotated: bool = False) -> list[str]:
+    """Split only top-level separators; inches are not opening quotation marks.
+
+    Annotated exports use sentence-final ``.,`` between records. Other commas
+    can belong to an alternative list or purpose, so leave those ambiguous
+    boundaries intact rather than inventing item identities.
+    """
+    parts: list[str] = []
+    start = 0
+    depth = 0
+    for index, char in enumerate(text):
+        if char in "([":
+            depth += 1
+        elif char in ")]":
+            depth = max(0, depth - 1)
+        elif depth == 0 and char in ",;":
+            if annotated and not (
+                char == "," and text[:index].rstrip().endswith(".")
+                and re.match(r"\s*[A-Z0-9]", text[index + 1:])
+            ):
+                continue
+            parts.append(text[start:index])
+            start = index + 1
+    parts.append(text[start:])
+    return parts
+
+
 def _parse_inventory_items(value: Any) -> list[ParsedInventoryItem]:
     """Parse inventory annotations while retaining every original fragment."""
     if value is None:
@@ -103,9 +130,9 @@ def _parse_inventory_items(value: Any) -> list[ParsedInventoryItem]:
     else:
         text = str(value)
         if " used for " in text.lower() or " alternatives:" in text.lower():
-            values = re.split(r"\.\s*,\s*(?=[A-Z0-9])", text)
+            values = _split_inventory(text, annotated=True)
         else:
-            values = text.split(",")
+            values = _split_inventory(text)
     output: list[ParsedInventoryItem] = []
     for item in values:
         raw = normalize_text(item).rstrip(".")
@@ -115,13 +142,14 @@ def _parse_inventory_items(value: Any) -> list[ParsedInventoryItem]:
             r"\s+alternatives:|\s+used for", raw, maxsplit=1, flags=re.I
         )[0]
         primary = re.sub(
-            r"\s+(unknown|not specified|n/?a)$", "", primary, flags=re.I
+            r"(?<!\w)(?:unknown|unspecified|not specified|n/?a)(?!\w)",
+            "", primary, flags=re.I
         )
         alternatives_match = re.search(
             r"\s+alternatives:\s*(.*?)(?=\s+used for\s+|$)", raw, flags=re.I
         )
         alternatives = (
-            _ordered_unique(alternatives_match.group(1).split(","))
+            _ordered_unique(_split_inventory(alternatives_match.group(1)))
             if alternatives_match
             else []
         )

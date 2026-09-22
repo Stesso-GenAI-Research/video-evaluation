@@ -385,6 +385,14 @@ preference data.
 
 ## 9. Next work
 
+September 22 implementation: inventory parsing fixes eliminate all 111
+unbalanced-parenthesis and 91 placeholder-name audit flags on the rebuilt
+sample. Nine conservative aliases are available via `--terminology` in search
+and benchmark; substitute exclusion is separately opt-in via
+`--primary-inventory-only`. Alias-only lexical Hit@1 remains 63.2% on the same
+462 queries; both options together give 61.5%, so neither is promoted to the
+default. See [implemented fixes and results](terminology-normalization.md).
+
 The September 22 terminology audit adds a development priority: inventory
 parsing cleanup and a contextual tool/material lexicon. See
 [Terminology normalization](terminology-normalization.md) for measured issues,
