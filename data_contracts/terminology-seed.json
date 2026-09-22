@@ -1,0 +1,18 @@
+{
+  "version": "0.1.0-proposal",
+  "status": "candidate rules for contextual review; not applied to retrieval",
+  "concepts": [
+    {"id": "material.gypsum_board", "label": "gypsum board", "aliases": ["gypsum board", "drywall", "plasterboard"], "scope": "Building board; preserve thickness, rating and facing. Drywall can also name a trade or assembly.", "exclude": ["joint compound", "cement board"], "source": "https://gypsum.org/what-is-gypsum-board/"},
+    {"id": "tool.tape_measure", "label": "tape measure", "aliases": ["tape measure", "measuring tape"], "scope": "Measuring tool; preserve flexible versus retractable subtype.", "exclude": ["adhesive tape"], "source": "Observed corpus variants; review candidate"},
+    {"id": "tool.adjustable_wrench", "label": "adjustable wrench", "aliases": ["adjustable wrench", "crescent wrench", "adjustable spanner"], "scope": "Preserve brand separately; regional alias requires contextual review.", "exclude": ["pipe wrench", "pliers", "torque wrench"], "source": "Observed corpus variants plus proposed regional extension"},
+    {"id": "tool.shop_vacuum", "label": "shop vacuum", "aliases": ["shop vacuum", "shop vac", "wet/dry shop vacuum"], "scope": "Preserve wet/dry capability; generic vacuum is broader, not equivalent.", "exclude": ["vacuum nozzle attachment"], "source": "Observed corpus variants; review candidate"},
+    {"id": "tool.miter_saw", "label": "miter saw", "aliases": ["miter saw", "mitre saw"], "scope": "Regional spelling; preserve compound/sliding features.", "exclude": ["circular saw", "miter gauge", "miter box"], "source": "Observed corpus term plus proposed regional extension"},
+    {"id": "tool.hex_key", "label": "hex key", "aliases": ["hex key", "allen key", "allen wrench"], "scope": "Preserve size and metric/imperial units.", "exclude": ["torx key"], "source": "Observed corpus term plus proposed regional extension"},
+    {"id": "material.joint_compound", "label": "drywall joint compound", "aliases": ["drywall mud", "joint compound"], "scope": "Only drywall finishing context; preserve setting versus drying type and product attributes.", "exclude": ["pipe joint compound", "stucco mud", "spackle", "plaster"], "source": "Observed corpus variants; review candidate"},
+    {"id": "fixture.faucet", "label": "faucet", "aliases": ["faucet", "tap"], "scope": "Only plumbing fixture context; tap also describes an action, threading tool or dispensing fixture.", "exclude": ["fuse tap", "tap water", "tap the screen"], "source": "Observed corpus variants; ambiguous candidate"},
+    {"id": "tool.utility_knife", "label": "utility knife", "aliases": ["utility knife", "box cutter", "retractable razor knife"], "scope": "Preserve blade and construction subtype; avoid global substitution.", "exclude": ["putty knife", "taping knife", "drywall knife"], "source": "Observed corpus variants; review candidate"},
+    {"id": "action.remove", "label": "remove", "aliases": ["remove", "take off", "detach"], "scope": "Object-specific transition to detached or absent; stripping a coating requires a different sense.", "exclude": ["install", "attach", "replace"], "source": "Proposed action review group"},
+    {"id": "state.smooth_surface", "label": "smooth surface", "aliases": ["smooth", "even finish"], "scope": "Explicit intended or observed surface condition; do not equate smooth, flat, level, clean or dry.", "exclude": ["level", "clean", "dry"], "source": "Proposed end-state review group"},
+    {"id": "state.leak_free", "label": "leak-free", "aliases": ["leak-free", "watertight"], "scope": "Contextual target condition; an annotation promising this state is not proof of observed success.", "exclude": ["tightened", "installed"], "source": "Proposed end-state review group"}
+  ]
+}

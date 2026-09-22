@@ -385,6 +385,13 @@ preference data.
 
 ## 9. Next work
 
+The September 22 terminology audit adds a development priority: inventory
+parsing cleanup and a contextual tool/material lexicon. See
+[Terminology normalization](terminology-normalization.md) for measured issues,
+the seed lexicon, external resources and the proposed controlled experiment.
+This work uses the existing human-generated annotations; its challenger must
+remain separate from the frozen primary evaluation below.
+
 1. Validate a small W25 schema sample without changing frozen settings.
 2. Run the frozen Step 1 evaluator once on all valid delivered judgments.
 3. Report primary all-judgment agreement with provenance slices as descriptive

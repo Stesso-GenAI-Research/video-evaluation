@@ -93,6 +93,7 @@ the Stesso meeting update are maintained in the
 
 ## Documentation
 
+- [Terminology audit, lexicon proposal, and next experiment](docs/terminology-normalization.md)
 - [Project status, experiments, and execution guide](docs/stesso-project-update.md)
 - [How the system works](docs/how-it-works.md)
 - [Running the pipeline and finding its outputs](docs/running-the-pipeline.md)
