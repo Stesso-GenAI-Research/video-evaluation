@@ -2,6 +2,10 @@
 
 Last verified: September 18, 2026.
 
+Source provenance corrected: September 22, 2026, following data-owner
+confirmation. The supplied indexed-video annotations are authentic
+human-generated data. Recorded experiment results remain those of September 18.
+
 This document is the source of truth for current project status, data inventory,
 experiment results, reproduction commands, output locations, and the Stesso
 project update. Method details and data contracts remain in the linked technical
@@ -52,7 +56,14 @@ retrieval settings.
 
 ## 3. Data inventory
 
-### 3.1 Real indexed-video sample
+### 3.1 Authentic human-generated indexed-video sample
+
+The data owner confirmed that `indexed-videos-250.jsonl` contains authentic
+human-generated annotations. It must not be described as machine-labeled or
+synthetic source data. The canonical clip index is a cleaned derivative of
+those annotations. See [Data provenance](data-provenance.md) for exact paths,
+the source checksum, and the distinction between source annotations and
+generated pairwise winners.
 
 The current real sample contains:
 
@@ -107,6 +118,9 @@ Both corpora use constructed target labels. Their manifests record
 stress testing, and case selection only. They must not be described as authentic
 human or production-cascade judgments.
 
+These flags apply to the constructed A/B winners, not to the authentic
+human-generated source annotations used to create the corpora.
+
 ## 4. Current experiment results
 
 ### 4.1 Field-held-out retrieval development benchmark
@@ -114,6 +128,10 @@ human or production-cascade judgments.
 The benchmark evaluates 462 eligible queries against 582 candidates. Candidate
 text excludes the clip name and parent-video text. Exact normalized phrase
 leakage and ambiguous query names are excluded.
+
+The source annotation fields are human-generated. Query/target pairing and
+scoring are automatic; this benchmark measures retrieval from those fields,
+rather than agreement with independently observed A/B preferences.
 
 Whole-corpus retrieval:
 
@@ -351,7 +369,8 @@ Use the following concise status:
 > clustered bootstrap, and audit outputs are complete. We have 3,704
 > constructed development comparisons across 1,150 steps, all of which resolve
 > cleanly, plus a field-held-out retrieval benchmark on the real 250-video
-> sample. Those development results currently favor lexical matching and expose
+> sample, whose source annotations are authentic human-generated data. Those
+> development results currently favor lexical matching and expose
 > structured-evidence coverage and tie problems. They are not human preference
 > results. The remaining dependency for the primary research question is the
 > authentic W25 steps and already-observed A/B judgments with provenance and

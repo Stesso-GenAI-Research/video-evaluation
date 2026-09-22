@@ -9,6 +9,11 @@ The main search pipeline reads the nested `indexed-videos-*.jsonl` export
 directly. The most important extra contract is the original-ranking input used
 for the real comparison experiment.
 
+The supplied `indexed-videos-250.jsonl` contains authentic human-generated
+source annotations, confirmed by the data owner on September 22, 2026.
+This is separate from the provenance of A/B winners required below; see
+[Data provenance](../docs/data-provenance.md).
+
 Project 1 Step 1 has separate current contracts for evaluating preferences that
 have already been judged. They intentionally do not replace the older generic
 pairwise files described at the end of this page.

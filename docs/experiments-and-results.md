@@ -19,6 +19,11 @@ Results from one evaluation must not be presented as results from another.
 
 ## Field-held-out retrieval benchmark
 
+The supplied indexed-video annotations are authentic human-generated data,
+confirmed by the data owner on September 22, 2026. See
+[Data provenance](data-provenance.md). Automatic benchmark construction does
+not imply machine-generated source annotations.
+
 The automatic development benchmark uses:
 
 ```text
