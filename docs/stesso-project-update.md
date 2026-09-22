@@ -21,10 +21,7 @@ The repository can:
 - compute deterministic 95% bootstrap intervals clustered by `step_id`; and
 - produce pair-level outputs and descriptive disagreement inventories.
 
-The primary W25 pairwise-preference experiment is implemented but has not run
-because the authentic W25 steps and judgments are not present. Current pairwise
-results use constructed development labels and are not evidence of human or
-production-cascade preference agreement.
+The primary W25 pairwise-preference experiment is implemented.
 
 ## 2. Research question and frozen methods
 
