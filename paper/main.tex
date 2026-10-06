@@ -1,0 +1,440 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,microtype}
+\usepackage{amsmath,amssymb,booktabs,tabularx}
+\usepackage{xcolor,enumitem,titlesec,fancyhdr}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xurl}
+\definecolor{ink}{HTML}{243746}
+\definecolor{muted}{HTML}{646B72}
+\titleformat{\section}{\large\bfseries\color{ink}}{\thesection}{0.7em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.7em}{}
+\setlength{\parindent}{1.1em}
+\setlength{\parskip}{0.15em}
+\setlength{\headheight}{14pt}
+\setlist{nosep,leftmargin=1.5em}
+\renewcommand{\arraystretch}{1.16}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{muted}Action semantics for instructional video retrieval}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.2pt}
+\newcommand{\pending}[1]{\par\noindent\textcolor{muted}{\textit{[To be completed: #1]}}\par\vspace{0.6em}}
+\input{generated/results.tex}
+\title{\vspace{-1.8em}\textbf{Action Semantics and Terminology Normalization\\for Instructional Video Retrieval}}
+\author{\textit{Author and affiliation to be added}}
+\date{Working manuscript\quad October 6, 2026}
+\hypersetup{pdftitle={Action Semantics and Terminology Normalization for Instructional Video Retrieval},
+  pdfsubject={Development experiments and evaluation protocol},pdfauthor={}}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+\begin{abstract}
+Instructional video search requires more than finding clips about the same
+topic. A useful result should show the requested action on the appropriate
+object. This study compares lexical TF--IDF matching, structured
+action--object--tool matching, and an equal-weight hybrid using human-written
+annotations from \VideoCount{} videos. Validation and deduplication produce
+\ClipCount{} canonical clips. A field-held-out development benchmark evaluates
+\QueryCount{} clip-name queries against \CandidateCount{} candidates whose
+representations exclude clip names and parent-video text. Lexical matching
+achieves \LexicalHitOne\% Hit@1, compared with \StructuredHitOne\% for
+structured matching and \HybridHitOne\% for the hybrid. Two constructed
+pairwise datasets also favor lexical matching. Inventory parsing fixes remove
+identified formatting defects, while a small terminology lexicon yields no
+aggregate Hit@1 improvement. These results establish a working evaluation
+pipeline and identify weaknesses in the current structured representation.
+Independent human preference evaluation and final held-out validation remain
+incomplete.
+\end{abstract}
+
+\section{Introduction}
+A request such as ``remove the old faucet'' is specific about both an action
+and an object. A clip about installing a faucet may share much of the same
+vocabulary while answering a different question. This motivates representing
+what an instruction asks someone to do, rather than relying only on shared
+words.
+
+The central question is whether an explicit action--object--tool
+representation improves matching between a project step and an instructional
+clip. The present implementation compares this representation with a lexical
+baseline and a fixed hybrid. It also examines a practical data issue:
+different names can refer to the same object or tool. For example, an
+annotation may use ``plasterboard'' where a query uses ``drywall.'' Human
+authorship establishes the source of the annotations, but does not guarantee
+consistent terminology or complete fields.
+
+This manuscript reports the completed development experiments. It separates
+three questions: whether the pipeline runs correctly, whether a scorer
+recovers a target defined by the benchmark, and whether the scorer agrees
+with independent human judgments. The current evidence answers the first two.
+It does not yet answer the third.
+
+\section{Related work}
+\pending{A focused review of instructional video retrieval, lexical and
+semantic retrieval baselines, and terminology normalization. Establish the
+relationship to prior methods before making a claim of novelty.}
+
+\section{Data and preparation}
+\subsection{Source annotations and canonical clips}
+The supplied indexed-video export contains authentic human-generated
+annotations, as confirmed by the data owner. Each video contains timestamped
+clip records with a name and optional description, goal, tools, and supplies.
+The study searches these textual records; it does not analyze video frames
+or audio.
+
+The preparation stage rejects non-positive time intervals and groups repeated
+annotations with the same source video and timestamps. It merges useful field
+variants while preserving the original records. Canonical identifiers depend
+on the source video and interval, not the wording of an annotation.
+Table~\ref{tab:data} summarizes the resulting index.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Data inventory and extraction coverage. Coverage measures the presence
+of extracted information, not its correctness.}\label{tab:data}
+\begin{tabularx}{\linewidth}{Xr}\toprule
+Measure & Value\\\midrule
+\InventoryRows
+\bottomrule\end{tabularx}
+\end{table}
+
+Of the \ClipCount{} canonical clips, 1,081 lack descriptions and 1,188 lack
+goals. Consequently, the retrieval benchmark uses a smaller candidate set
+with narrative evidence. Its results should not be interpreted as accuracy
+over every clip in the full index.
+
+\subsection{Annotation provenance and evaluation labels}
+Source authorship and evaluation-label construction are distinct. The source
+descriptions are human-written. The retrieval target is assigned by the
+relationship between fields belonging to the same clip. In the two development
+pairwise datasets, a construction rule supplies the winning clip. Neither
+procedure establishes that a person compared the candidates and preferred
+that winner.
+
+\subsection{Collection and annotation procedure}
+\pending{Document video sampling, annotator instructions, authoring and review
+procedures, and any restrictions on releasing the data. These details have
+not been established from the local export.}
+
+\section{Methods}
+\subsection{Lexical baseline}
+The lexical method represents text using TF--IDF features for individual words
+and adjacent word pairs. The vectors are normalized to unit length, so their
+dot product gives cosine similarity~\cite{sklearn}. The retrieval benchmark
+fits the vocabulary on candidate fields only and uses raw term frequency.
+The existing search and pairwise-evaluation path uses sublinear term
+frequency, $1+\log(\mathrm{tf})$, for positive counts. These configurations
+are retained as implemented rather than changed after observing results.
+
+The candidate fields also differ by evaluation. The field-held-out benchmark
+excludes clip names and parent-video text. The frozen pairwise evaluator uses
+the existing search representation, which includes those fields and weights
+the clip title twice. Direct comparison of percentages across these two
+experiments would therefore be inappropriate.
+
+\subsection{Structured matching}
+The parser uses spaCy tokenization, part-of-speech tagging, lemmatization, and
+dependency relationships~\cite{spacy}. It extracts action records with an
+action lemma, object terms, directly attached tool terms, and negation.
+Tool and supply inventories provide separate record-level context. An
+inventory item is not assumed to be grammatically attached to every action.
+
+An exact action-lemma match receives a score of one. Otherwise, shared
+VerbNet classes and FrameNet frames provide weaker matching evidence.
+VerbNet groups verbs using syntactic and semantic patterns~\cite{verbnet};
+FrameNet supplies frame-semantic descriptions~\cite{baker1998framenet}.
+For sets of labels $X$ and $Y$, let
+\begin{equation}
+ J(X,Y)=\frac{|X\cap Y|}{|X\cup Y|},
+\end{equation}
+with zero assigned when there is no shared evidence. If $V$ denotes VerbNet
+classes and $F$ denotes FrameNet frames, action similarity is
+\begin{equation}
+ A(q,c)=
+ \begin{cases}
+  1, & \text{if the action lemmas match},\\
+  \max\{0.80J(V_q,V_c),\;0.70J(F_q,F_c)\}, & \text{otherwise}.
+ \end{cases}
+\end{equation}
+Object matching measures the fraction of query object terms found in the
+candidate. Tool and supply comparisons use the same directional coverage
+principle. Their strongest applicable match supplies a context score $C$.
+
+For one query action and one candidate action, the score has the form
+\begin{equation}\label{eq:structured}
+ S(q,c)=\gamma A(q,c)
+       \bigl(w_A A(q,c)+w_O O(q,c)+w_C C(q,c)\bigr),
+\end{equation}
+where the base weights are $(0.55,0.35,0.10)$. Weights for absent query object
+or context evidence are removed, and the remaining weights are renormalized.
+The confidence multiplier is $\gamma=0.90+0.10\min(p_q,p_c)$, where the $p$
+values are extraction confidences. A negation mismatch forces the score to
+zero. The strongest candidate action is selected for each query action, and
+the resulting scores are averaged. A learned exploratory action taxonomy is
+recorded for diagnostics but does not affect ranking.
+
+\subsection{Hybrid matching}
+The fixed hybrid uses
+\begin{equation}
+ H(q,c)=0.5L(q,c)+0.5S(q,c),
+\end{equation}
+where $L$ is the lexical score. The search and pairwise paths fall back to the
+lexical score if no query action can be parsed. The retrieval benchmark instead
+excludes such queries while retaining their clips as possible distractors.
+No hybrid-weight sweep is used to select the reported result.
+
+\subsection{Inventory cleanup and terminology normalization}
+The audit found that comma splitting sometimes broke valid parenthesized
+inventory lists. Parsed names also retained placeholders such as ``Unknown''
+and ``Unspecified.'' The revised parser respects grouped lists, preserves
+usage notes, and removes these placeholders from parsed names. Original
+annotations remain available for inspection. On the complete canonical
+index, mismatched-parenthesis flags fell from 111 to zero, and placeholder-name
+flags fell from 91 to zero. These counts describe audit flags, not a manually
+estimated error rate.
+
+The active lexicon contains nine directional rewrites covering seven preferred
+terms. Examples include ``gypsum board'' and ``plasterboard'' to ``drywall,''
+``measuring tape'' to ``tape measure,'' and ``mitre saw'' to ``miter saw.''
+The same normalization is applied to queries and candidate representations.
+Attributes and original text are retained. Ambiguous terms such as ``tap,''
+``mud,'' and ``Sheetrock'' have no global rewrite rule. The local annotations,
+for example, use Sheetrock in the name of a joint-compound product.
+
+A second, independent option excludes explicitly listed substitutes from
+inventory evidence. It does not remove the original alternatives from the
+metadata. This distinction is needed because a circular saw may be offered as
+an alternative to a miter saw without being the same tool.
+
+\section{Experimental design}
+\subsection{Field-held-out retrieval}
+The query is a clip name, and the known target is the same canonical clip.
+Candidates are represented by descriptions, goals, tools, and supplies.
+Candidates require a description or goal. Queries are excluded when their
+normalized names are ambiguous, when their exact normalized phrase appears
+in the target fields, or when an action cannot be parsed. Excluded queries
+remain candidate distractors. The resulting experiment contains
+\QueryCount{} queries and \CandidateCount{} candidates.
+
+The benchmark reports Hit@$k$ for $k\in\{1,3,10\}$ and mean reciprocal rank
+(MRR). Targets with non-positive scores receive zero credit. For a positive
+score tied across ranks $a$ through $b$, Hit@$k$ receives the fraction of those
+positions at or above the cutoff. Reciprocal-rank credit is
+\begin{equation}
+ \frac{1}{b-a+1}\sum_{r=a}^{b}\frac{1}{r}.
+\end{equation}
+Retrieval ties use a numerical tolerance of $10^{-12}$. Confidence intervals
+resample whole source-video clusters, with 2,000 draws and seed 1729. The
+within-video analysis restricts candidates to the query's source video.
+
+All four terminology configurations use the same ordered query cohort and
+index artifacts. New exact normalized query--target phrase matches are
+recorded separately; none occurred in these runs. This check does not remove
+all semantic dependence between a clip's annotation fields.
+
+\subsection{Constructed pairwise development experiments}
+The metadata-contrast dataset contains 800 steps and 2,395 comparisons selected
+using parsed metadata rather than retrieval scores. The hard-negative dataset
+contains 350 steps and 1,309 comparisons. It uses paraphrased requests and
+alternatives selected using frozen scorer outputs. Both datasets designate
+the clip supplying the request information as the winner. The hard-negative
+selection is deliberately challenging and is not a random sample of user
+requests.
+
+The evaluator scores the supplied A/B clips directly. Agreement credit is one
+when the designated winner receives a higher score, one-half for an exact
+score tie, and zero otherwise. Intervals resample complete step clusters,
+using 5,000 draws and seed 42. The October 6 run copied the earlier comparison
+inputs unchanged, rather than regenerating winners after the code changes.
+The two datasets are reported separately because their selection procedures
+differ.
+
+\subsection{Independent human preference evaluation}
+\pending{Recruitment or annotation source, task instructions, independent A/B
+judgments, disagreement handling, missing-reference counts, and the frozen
+primary evaluation. No results are available yet.}
+
+\subsection{Prospective held-out evaluation}
+\pending{A new video pool and independently authored queries or judgments,
+with source overlap checks and a frozen evaluation protocol. The current
+250-video sample has already informed development and must not be described
+as an untouched test set.}
+
+\section{Results}
+\subsection{Retrieval performance}
+Lexical matching is strongest on the whole-corpus benchmark
+(Table~\ref{tab:global}). Its Hit@1 is \LexicalHitOne\%, compared with
+\StructuredHitOne\% for structured matching and \HybridHitOne\% for the
+hybrid. The hybrid-minus-lexical Hit@1 difference is approximately $-12.6$
+percentage points, with a video-clustered 95\% interval of approximately
+$[-18.4,-6.9]$ points.
+
+\begin{table}[htbp]\centering\small
+\caption{Whole-corpus retrieval. Hit rates are percentages.}\label{tab:global}
+\begin{tabular}{lrrrr}\toprule
+Method & Hit@1 & Hit@3 & Hit@10 & MRR\\\midrule
+\GlobalRows
+\bottomrule\end{tabular}
+\end{table}
+
+Restricting retrieval to the same video improves all methods
+(Table~\ref{tab:within}). Lexical and hybrid Hit@1 are both approximately
+72.7\%. The hybrid-minus-lexical interval is approximately $[-4.9,+5.4]$
+percentage points. Equal point estimates do not establish equivalence.
+
+\begin{table}[htbp]\centering\small
+\caption{Within-video retrieval. Hit rates are percentages.}\label{tab:within}
+\begin{tabular}{lrrrr}\toprule
+Method & Hit@1 & Hit@3 & Hit@10 & MRR\\\midrule
+\WithinRows
+\bottomrule\end{tabular}
+\end{table}
+
+\subsection{Terminology ablation}
+Parser cleanup preserves the observed Hit@1 rates. Adding the active aliases
+also leaves aggregate Hit@1 unchanged (Table~\ref{tab:ablation}). For lexical
+ranking, one query moves from first to second place and another moves from
+second to first. Removing substitute lists reduces observed lexical Hit@1;
+the combined setting has the lowest lexical point estimate.
+
+\begin{table}[htbp]\centering\small
+\caption{Hit@1 after cleanup, with independent terminology options. Values are
+percentages; hybrid weights remain fixed.}\label{tab:ablation}
+\begin{tabular}{lrrr}\toprule
+Configuration & Lexical & Structured & Hybrid\\\midrule
+\AblationRows
+\bottomrule\end{tabular}
+\end{table}
+
+\begin{table}[htbp]\centering\small
+\caption{Paired lexical Hit@1 changes relative to the cleaned baseline, in
+percentage points. Intervals resample source-video clusters.}\label{tab:deltas}
+\begin{tabular}{lrrr}\toprule
+Configuration & Change & 95\% lower & 95\% upper\\\midrule
+\DeltaRows
+\bottomrule\end{tabular}
+\end{table}
+
+The intervals in Table~\ref{tab:deltas} include zero. Thus the ablation does
+not establish a general improvement or decline beyond this development
+sample. The results support keeping the new search options separate and
+optional while evaluating broader terminology coverage.
+
+\subsection{Pairwise development agreement}
+All 3,704 comparisons resolve to canonical clips. Table~\ref{tab:pairs}
+reports agreement with the constructed winners. The metadata-contrast task
+is nearly saturated by lexical matching. The hard-negative task separates
+the methods more strongly: lexical agreement remains high while structured
+agreement falls to approximately 50.8\%. The hybrid is between them.
+These are target-recovery results, not observed human preference agreement.
+
+\begin{table}[htbp]\centering\small
+\caption{Agreement with constructed pairwise winners. Agreement and confidence
+intervals are percentages; intervals are clustered by step.}\label{tab:pairs}
+\begin{tabular}{llrrr}\toprule
+Dataset & Method & Pairs & Agreement & 95\% interval\\\midrule
+\PairwiseRows
+\bottomrule\end{tabular}
+\end{table}
+
+\subsection{Diagnostic findings}
+Table~\ref{tab:diagnostics} records overlapping diagnostic flags. Structured
+ties and zero evidence are frequent, especially in the hard-negative corpus.
+These counts identify cases for inspection; they do not, by themselves,
+establish whether a failure was caused by missing source information, an
+incorrect parse, an inadequate lexicon, or the scoring rule.
+
+\begin{table}[htbp]\centering\small
+\caption{Diagnostic counts, reported separately by construction procedure.
+Rows overlap and must not be summed as distinct errors.}\label{tab:diagnostics}
+\begin{tabularx}{\linewidth}{Xrr}\toprule
+Diagnostic & Metadata contrast & Hard negatives\\\midrule
+\DiagnosticRows
+\bottomrule\end{tabularx}
+\end{table}
+
+\subsection{Human-reviewed extraction accuracy}
+\pending{Complete the 60-row extraction worksheet; report correctness of
+actions, objects, and tools, along with label coverage and review limitations.
+The worksheet is stratified for diagnosis, not a simple random sample for
+estimating corpus-wide precision.}
+
+\subsection{Independent preference and final held-out results}
+\pending{Insert validated results from independent human judgments and the
+prospective evaluation. Leave unmeasured quantities blank.}
+
+\section{Discussion and limitations}
+The current evidence favors lexical matching. Adding structure does not help
+simply because the representation is more explicit: the parser must identify
+the right information, and the matching rule must use it appropriately. The
+large number of ties and missing-evidence cases indicates that these conditions
+are often not met by the present system.
+
+Terminology inconsistency is a concrete data issue, but it is not a complete
+explanation for the performance gap. The active lexicon is small, and some
+synonyms already occur in alternative fields. The ordinary clip-name benchmark
+also does not specifically sample regional language or unfamiliar synonyms.
+A more informative test would include independently written requests using
+those variants, together with confusing non-synonyms.
+
+Several limitations constrain interpretation. First, query names and candidate
+descriptions describe the same clip, so their wording and meaning are not
+independent even after direct phrase exclusions. Second, candidates with
+narrative evidence are a selected subset of the full corpus. Third, parser
+coverage is measured but parser precision is not. Fourth, constructed pairwise
+winners and scorer-selected hard negatives do not represent a population of
+human preferences. Finally, these videos and results have already been examined
+during development. A new split of the same data cannot reverse that exposure.
+
+End-state matching remains a separate, unfinished task. An intended result
+such as a watertight seal is different from evidence that the seal was achieved.
+Likewise, ``smooth,'' ``level,'' ``dry,'' and ``cured'' describe different
+conditions. No validated end-state representation or evaluation is reported.
+
+\section{Conclusion}
+The completed experiments establish a reproducible comparison of lexical,
+structured, and hybrid matching on human-written instructional video
+annotations. Lexical matching is currently the strongest baseline.
+Inventory cleanup improves data consistency, while the tested synonym rules
+do not improve aggregate Hit@1. The next empirical requirement is independent
+evaluation of parser correctness and clip preference, followed by a
+prospective test of any revised method.
+
+\pending{Revise the final conclusion after independent preference and held-out
+results are available. Do not replace the present negative result with an
+unmeasured improvement claim.}
+
+\section*{Acknowledgments}
+\pending{Author-approved acknowledgments and funding information.}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\appendix
+\section{Reproducibility}
+The verified development run is stored at
+\path{project1_outputs/experiment-suite-2026-10-06/}. Its summary records the
+individual configurations, paired intervals, index profile, and pairwise
+diagnostics. The run manifest records hashes of inputs, Python source, and
+output artifacts. The paper tables are generated from the verified JSON
+summary rather than transcribed manually.
+
+From the repository root, the full development suite can be run with:
+\begin{quote}\small\ttfamily
+./scripts/run\_local\_pipeline.sh experiments \\
+\hspace*{1em}--output-dir project1\_outputs/new-run \\
+\hspace*{1em}--development-root project1\_outputs
+\end{quote}
+Each run requires a new output directory. Supplying the development root
+copies the existing labels unchanged; omitting it constructs new development
+datasets. These two modes must be distinguished when comparing runs.
+
+\section{Outstanding study materials}
+\pending{Final annotation protocol, annotator details, prospective test
+manifest, and release or access conditions for the private data.}
+\end{document}

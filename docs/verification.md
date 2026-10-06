@@ -1,6 +1,6 @@
 # Current verification record
 
-Verified September 18, 2026 on macOS 27.0 with Python 3.13.15.
+Verified October 6, 2026 with the local Python 3.13 environment.
 
 Current data counts and experiment results are maintained in the
 [project status, experiments, and execution guide](stesso-project-update.md).
@@ -17,7 +17,7 @@ Run:
 Latest result:
 
 ```text
-93 tests passed
+123 tests passed
 All Ruff checks passed
 Python source and tests compiled
 Bash syntax check passed
@@ -26,6 +26,9 @@ CLI help rendered successfully
 
 The suite covers:
 
+- complete experiment-suite CLI availability, output preservation and failure status;
+- cross-run cohort/index checks, duplicate query rejection, consistency between
+  CSV ranks and aggregate metrics, and fractional-tie paired comparisons;
 - nested input parsing, invalid interval quarantine, duplicate merging, and
   canonical clip IDs;
 - action extraction and lexical, structured, and hybrid scoring;
@@ -43,6 +46,18 @@ The suite covers:
 - end-to-end command smoke tests.
 
 ## Real sample checks
+
+The October 6 end-to-end run completed in
+`project1_outputs/experiment-suite-2026-10-06/`. It built a fresh index, ran
+four retrieval configurations on identical 462-query/582-candidate cohorts,
+computed cross-run paired intervals, evaluated both existing development
+corpora (3,704/3,704 resolved comparisons), and wrote both diagnostic inventories.
+The source and copied development inputs were verified unchanged. All 48
+manifest input hashes and 55 output artifact hashes matched after completion.
+
+The fresh terminology audit in `project1_outputs/terminology-audit-2026-10-06/`
+again found zero unbalanced-parenthesis and zero placeholder-name flags after
+cleanup. Missing descriptions/goals and unreviewed roles remain data limitations.
 
 The build was run against the real `indexed-videos-250.jsonl` sample. It
 successfully produced the canonical clip index, rejected-row inventory, action

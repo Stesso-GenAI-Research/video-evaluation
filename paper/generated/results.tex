@@ -1,0 +1,57 @@
+% Source: project1_outputs/experiment-suite-2026-10-06
+% Summary SHA-256: 537ad831820fbbd02d9ca1f0533fd0b212a0d408db317a795c7ec443b3be4292
+\newcommand{\VideoCount}{250}
+\newcommand{\ClipCount}{1,663}
+\newcommand{\QueryCount}{462}
+\newcommand{\CandidateCount}{582}
+\newcommand{\LexicalHitOne}{63.2}
+\newcommand{\StructuredHitOne}{26.4}
+\newcommand{\HybridHitOne}{50.6}
+\newcommand{\InventoryRows}{
+Parent videos & 250 \\
+Raw clip annotations & 1,703 \\
+Valid annotations & 1,700 \\
+Rejected intervals & 3 \\
+Canonical clips & 1,663 \\
+Extracted action records & 8,899 \\
+Clips with at least one extracted action & 1,296 (77.9\%) \\
+Action records with an object & 64.0\% \\
+Action records with a directly attached tool & 7.4\% \\
+}
+\newcommand{\GlobalRows}{
+Lexical TF--IDF & 63.20 & 85.50 & 93.29 & 0.749 \\
+Structured & 26.43 & 36.31 & 47.05 & 0.335 \\
+Hybrid (50/50) & 50.65 & 61.48 & 67.96 & 0.577 \\
+}
+\newcommand{\WithinRows}{
+Lexical TF--IDF & 72.73 & 92.86 & 98.70 & 0.834 \\
+Structured & 50.42 & 68.46 & 73.59 & 0.597 \\
+Hybrid (50/50) & 72.73 & 92.50 & 99.78 & 0.833 \\
+}
+\newcommand{\AblationRows}{
+Cleaned baseline & 63.20 & 26.43 & 50.65 \\
+Aliases only & 63.20 & 26.43 & 50.65 \\
+Primary inventory only & 61.90 & 26.36 & 50.65 \\
+Both changes & 61.47 & 26.36 & 50.65 \\
+}
+\newcommand{\DeltaRows}{
+Aliases only & 0.00 & -0.62 & 0.65 \\
+Primary inventory only & -1.30 & -3.04 & 0.45 \\
+Both changes & -1.73 & -3.66 & 0.21 \\
+}
+\newcommand{\PairwiseRows}{
+Metadata contrast & Lexical & 2,395 & 99.83 & [99.66, 99.96] \\
+Metadata contrast & Structured & 2,395 & 95.91 & [95.08, 96.72] \\
+Metadata contrast & Hybrid & 2,395 & 99.75 & [99.54, 99.92] \\
+Hard negatives & Lexical & 1,309 & 96.72 & [95.36, 97.92] \\
+Hard negatives & Structured & 1,309 & 50.76 & [48.24, 53.31] \\
+Hard negatives & Hybrid & 1,309 & 72.80 & [70.94, 74.73] \\
+}
+\newcommand{\DiagnosticRows}{
+Lexical/structured disagreement & 172 & 858 \\
+Structured ties & 144 & 413 \\
+Zero structured evidence & 46 & 369 \\
+Query parse failure & 21 & 0 \\
+Hybrid recovery relative to lexical & 2 & 13 \\
+Hybrid regression relative to lexical & 4 & 326 \\
+}

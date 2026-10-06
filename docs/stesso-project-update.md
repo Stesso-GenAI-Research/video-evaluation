@@ -1,10 +1,12 @@
 # Project status, experiments, and execution guide
 
-Last verified: September 18, 2026.
+Last verified: October 6, 2026.
 
 Source provenance corrected: September 22, 2026, following data-owner
 confirmation. The supplied indexed-video annotations are authentic
-human-generated data. Recorded experiment results remain those of September 18.
+human-generated data. The October 6 full rerun reproduced the recorded retrieval
+and pairwise agreement rates using a freshly rebuilt, cleaned index and the
+original development pair labels copied verbatim.
 
 This document is the source of truth for current project status, data inventory,
 experiment results, reproduction commands, output locations, and the Stesso
@@ -12,6 +14,33 @@ project update. Method details and data contracts remain in the linked technical
 references.
 
 ## 1. Current status
+
+The complete local development suite now runs with one command:
+
+```bash
+./scripts/run_local_pipeline.sh experiments \
+  --output-dir project1_outputs/my-experiment-run \
+  --development-root project1_outputs
+```
+
+Use a new directory each time. The verified October 6 run is at
+`project1_outputs/experiment-suite-2026-10-06/`; its `summary.md`, `summary.json`,
+`status.json`, and `manifest.json` record completion, results and provenance.
+All 48 manifest input hashes and 55 artifact hashes were verified after the
+run. The original source and all copied development labels are unchanged.
+
+**Engineering status:** index build, four retrieval arms, paired comparisons,
+both pairwise evaluations and both diagnostic inventories completed. The
+suite checks identical query cohorts and index provenance, counts tied ranks
+fractionally, refuses output overwrites, and records failed stages explicitly.
+All 123 automated tests pass.
+
+**Research status:** lexical TF-IDF remains strongest. A negative result is a
+valid finding; successful execution does not establish a structured-method
+improvement. Source annotations are authentic human-generated data, but no
+separate authentic W25 A/B preference export was found locally. The existing
+60-row extraction review also remains unlabeled, so parser precision and
+independent preference agreement are still unmeasured.
 
 The repository can:
 
@@ -199,6 +228,13 @@ or tie-reduction changes have been made from these observations.
 
 ## 5. Reproduce the current experiments
 
+The `experiments` command above now automates the full local sequence in a new
+directory, including the four terminology variants and their paired confidence
+intervals. With `--development-root`, it preserves the existing comparison
+labels. Without that option it constructs new development corpora. See
+[Full development experiment suite](running-the-pipeline.md#full-development-experiment-suite)
+for controls, failure behavior and output locations.
+
 Run all commands from the repository root.
 
 ### 5.1 Setup and verification
@@ -285,6 +321,7 @@ No tuning or preliminary W25 sweep should precede this command.
 | Path | Responsibility |
 |---|---|
 | [`scripts/run_local_pipeline.sh`](../scripts/run_local_pipeline.sh) | Supported shell entry point |
+| [`src/action_semantics/experiment_suite.py`](../src/action_semantics/experiment_suite.py) | Full development orchestration, paired cross-run validation, status and reporting |
 | [`src/action_semantics/cli.py`](../src/action_semantics/cli.py) | CLI command definitions |
 | [`src/action_semantics/retrieval/preference_evaluation.py`](../src/action_semantics/retrieval/preference_evaluation.py) | Input loading, frozen direct scoring, validation, bootstrap, and outputs |
 | [`src/action_semantics/retrieval/clip_resolution.py`](../src/action_semantics/retrieval/clip_resolution.py) | Shared canonical-ID and timestamp resolution |
@@ -385,6 +422,20 @@ preference data.
 
 ## 9. Next work
 
+October 6 completion priorities:
+
+1. Complete the 60-row parser review in the new run's
+   `index/quality/manual_review_sample.csv`; judge actions, objects and tools
+   against their source sentences before changing extraction rules.
+2. Obtain independently observed A/B judgments plus step text, and execute the
+   frozen preference evaluation. Human authorship of clip metadata does not
+   supply those separate preference decisions.
+3. If continuing model development, use the diagnostic case inventories to
+   address missing structured evidence and test synonym queries. Preserve an
+   independent holdout and report any regressions alongside gains.
+4. Write the final research conclusion from that evaluation, including a
+   negative result if structured scoring still fails to beat lexical matching.
+
 September 22 implementation: inventory parsing fixes eliminate all 111
 unbalanced-parenthesis and 91 placeholder-name audit flags on the rebuilt
 sample. Nine conservative aliases are available via `--terminology` in search
@@ -414,7 +465,7 @@ remain separate from the frozen primary evaluation below.
 The latest complete check produced:
 
 ```text
-93 tests passed
+123 tests passed
 All Ruff checks passed
 Python source and tests compiled
 Bash syntax check passed

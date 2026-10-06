@@ -43,6 +43,55 @@ review worksheet. Those activities require a query or a human decision.
 
 ## Command reference
 
+### Full development experiment suite
+
+```bash
+./scripts/run_local_pipeline.sh experiments \
+  --output-dir project1_outputs/my-experiment-run \
+  --development-root project1_outputs
+```
+
+Use a new output directory for each run. This command builds a fresh index,
+runs baseline, aliases-only, primary-inventory-only and combined retrieval,
+checks identical query cohorts and index provenance, computes tie-aware paired
+confidence intervals clustered by source video, and evaluates/diagnoses both
+existing development pairwise corpora. All comparisons keep the same method
+weights; no tuning is performed.
+
+`--development-root` must contain `metadata-contrast-preference-development/`
+and `paraphrased-preference-development/`, each with `steps.jsonl`,
+`pairwise.jsonl`, and `generation_manifest.json`. The suite checks that the
+manifests explicitly identify constructed judgments and copies those files
+verbatim into the new run. If a supplied file is missing, it fails before
+building; it does not silently generate a replacement.
+
+Without `--development-root`, the suite generates fresh constructed datasets
+(800 metadata-contrast steps and 350 hard-negative steps). These may differ
+from historical datasets if index preparation or code changed, so compare
+method rates only within a fixed set of input labels.
+
+The underlying CLI is `.venv/bin/action-semantics experiment-suite --source
+indexed-videos-250.jsonl --output-dir ...`. Optional `--seed` (default 42) and
+`--bootstrap-iterations` (default 5,000) control development generation/pairwise
+evaluation and pairwise bootstrap draws respectively. Retrieval retains its
+fixed seed 1729 and 2,000 video-clustered bootstrap draws.
+
+Run artifacts:
+
+- `summary.md`: concise retrieval and pairwise result tables.
+- `summary.json`: full metrics, intervals, diagnostics, and data completeness.
+- `status.json`: current/completed stages; a failure is explicitly recorded.
+- `manifest.json`: hashes of source inputs, Python source, and result artifacts.
+- `index/`: rebuilt canonical clips, parser outputs and extraction review sheet.
+- `retrieval/{baseline,aliases,primary,combined}/`: individual benchmark outputs.
+- `pairwise/<corpus>/`: copied/generated labels, evaluator outputs and diagnostics.
+
+The suite completes local development experiments. Independent preference
+judgments and completed manual reviews are separate requirements for the
+research conclusion. Tests remain available through `./scripts/run_local_pipeline.sh test`.
+
+### Individual commands
+
 | Command | What it does |
 |---|---|
 | `setup` | Create the environment and install all dependencies. |
@@ -61,6 +110,7 @@ review worksheet. Those activities require a query or a human decision.
 | `benchmark` | Run the automatic field-pair development benchmark. |
 | `review` | Summarize labels in the extraction-quality worksheet. |
 | `all` | Run `test`, `build`, and `benchmark`. |
+| `experiments` | Run the complete local development suite into a new directory. |
 | `--help` | Print the Bash command summary. |
 
 For example:

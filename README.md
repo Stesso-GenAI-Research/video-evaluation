@@ -75,6 +75,22 @@ review or invent old search results; those steps require real experiment input.
 
 ## Current results and next experiment
 
+Run all available local development experiments with one command, preserving
+the existing pairwise inputs and writing to a new output directory:
+
+```bash
+./scripts/run_local_pipeline.sh experiments \
+  --output-dir project1_outputs/my-experiment-run \
+  --development-root project1_outputs
+```
+
+This builds a fresh index, runs four retrieval configurations, computes paired
+comparisons, evaluates both development pairwise datasets, and writes
+`summary.md`, `summary.json`, `status.json`, and a reproducibility manifest.
+Existing output directories are refused. Omit `--development-root` to construct
+new development datasets when the old local files are unavailable; these remain
+generated comparison labels, not observed human A/B judgments.
+
 The supplied `indexed-videos-250.jsonl` contains authentic human-generated
 video and clip annotations, as confirmed by the data owner on September 22,
 2026. The cleaned index preserves those annotations; extracted action records

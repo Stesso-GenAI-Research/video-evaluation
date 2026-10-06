@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from .config import DEFAULT_RANDOM_SEED, DEFAULT_SPACY_MODEL, PipelineConfig
+from .experiment_suite import run_experiment_suite
 from .contrast_preferences import (
     DEFAULT_CONTRAST_STEP_COUNT,
     generate_contrast_preferences,
@@ -35,6 +36,26 @@ from .synthetic_preferences import (
 from .verification import verify_output_repository, verify_structured_analysis
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+
+
+@app.command("experiment-suite")
+def experiment_suite(
+    source: Annotated[Path, typer.Option(exists=True, dir_okay=False, readable=True)],
+    output_dir: Annotated[Path, typer.Option(help="New directory; existing paths are refused.")],
+    development_root: Annotated[
+        Path | None, typer.Option(exists=True, file_okay=False,
+                                 help="Reuse both existing development corpora verbatim.")
+    ] = None,
+    spacy_model: Annotated[str, typer.Option()] = DEFAULT_SPACY_MODEL,
+    seed: Annotated[int, typer.Option()] = 42,
+    bootstrap_iterations: Annotated[int, typer.Option(min=1)] = 5000,
+) -> None:
+    """Build an index, run four retrieval arms and two development pairwise tests."""
+    paths = run_experiment_suite(
+        source=source, output_dir=output_dir, development_root=development_root,
+        spacy_model=spacy_model, seed=seed, bootstrap_iterations=bootstrap_iterations,
+    )
+    info(f"Experiment suite complete. Report written to {paths['report']}")
 
 
 class SearchMethodChoice(str, Enum):

@@ -3,6 +3,12 @@
 Audited September 22, 2026. Source annotations are authentic human-generated
 data. Authorship and terminology consistency are separate properties.
 
+Reverified October 6, 2026 through the full `experiments` CLI. Results below
+were reproduced on a fresh index; see
+`project1_outputs/experiment-suite-2026-10-06/summary.json` for all paired
+method deltas, rather than only the original lexical comparison. The repeated
+cleanup audit is at `project1_outputs/terminology-audit-2026-10-06/`.
+
 ## Implemented fixes and measured results
 
 The inventory parser now respects parentheses/brackets when splitting lists,

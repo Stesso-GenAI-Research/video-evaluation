@@ -12,7 +12,7 @@ COMMAND="${1:-all}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|compare-batch|generate-synthetic-pairs|generate-controlled-pairs|generate-contrast-pairs|evaluate-pairs|analyze-pairs|score-review|benchmark|review|all]
+Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|compare-batch|generate-synthetic-pairs|generate-controlled-pairs|generate-contrast-pairs|evaluate-pairs|analyze-pairs|score-review|benchmark|experiments|review|all]
 
   setup   Create a Python 3.11-3.13 virtual environment and install dependencies.
   test    Compile the project, run pytest, run Ruff, and show CLI help.
@@ -28,6 +28,7 @@ Usage: ./scripts/run_local_pipeline.sh [setup|test|build|sample|search|compare|c
   analyze-pairs  Build a descriptive diagnostic inventory from pair score rows.
   score-review   Score the completed batch-comparison blind review worksheet.
   benchmark Run the field-held-out lexical/structured/hybrid experiment.
+  experiments Build a fresh index and run all local development experiments; requires --output-dir.
   review  Summarize the human labels added to manual_review_sample.csv.
   all     Test, build, and benchmark. Setup runs only if the environment is absent.
 
@@ -248,6 +249,11 @@ analyze_pairs() {
   "$VENV_DIR/bin/action-semantics" analyze-pairs "${@:2}"
 }
 
+run_experiments() {
+  ensure_environment
+  "$VENV_DIR/bin/action-semantics" experiment-suite --source "$SAMPLE_JSONL" "${@:2}"
+}
+
 case "$COMMAND" in
   setup) setup ;;
   test) run_tests ;;
@@ -268,6 +274,7 @@ case "$COMMAND" in
     benchmark_sample
     ;;
   benchmark) benchmark_sample "$@" ;;
+  experiments) run_experiments "$@" ;;
   -h|--help|help)
     usage
     ;;
