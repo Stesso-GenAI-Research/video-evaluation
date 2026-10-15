@@ -1,6 +1,7 @@
 # Current verification record
 
-Verified October 6, 2026 with the local Python 3.13 environment.
+Verified October 15, 2026 with the local Python 3.13 environment.
+Experiment results remain from the complete October 6 run.
 
 Current data counts and experiment results are maintained in the
 [project status, experiments, and execution guide](stesso-project-update.md).
@@ -17,7 +18,7 @@ Run:
 Latest result:
 
 ```text
-123 tests passed
+133 tests passed
 All Ruff checks passed
 Python source and tests compiled
 Bash syntax check passed
@@ -26,6 +27,10 @@ CLI help rendered successfully
 
 The suite covers:
 
+- human-review export validation, explicit abstention accounting, and protection
+  against inferred labels or edited clip identities;
+- prospective overlap detection, including reidentified YouTube videos and
+  duplicate candidate videos;
 - complete experiment-suite CLI availability, output preservation and failure status;
 - cross-run cohort/index checks, duplicate query rejection, consistency between
   CSV ranks and aggregate metrics, and fractional-tie paired comparisons;
@@ -46,6 +51,21 @@ The suite covers:
 - end-to-end command smoke tests.
 
 ## Real sample checks
+
+The October 15 diagnostic packet contains 60 extraction rows and 44 preference
+rows from distinct source steps. All response fields are blank, protected CSV
+fields match the private key, and no scorer outputs or constructed winners
+appear in the preference sheet. Its zero-score partition accounts for all 415
+comparisons: 21 query parse failures, 58 missing candidate parses, and 336 with
+parsed actions but zero selected action matches.
+
+The prospective overlap guard was run with the existing export on both sides.
+It detected all 250 overlapping videos and returned the expected failure status.
+This verifies rejection behavior; it is not a prospective evaluation.
+
+The nine-page manuscript builds with LaTeX/BibTeX from hash-verified result
+tables. The build also produces a source bundle that excludes private datasets
+and review worksheets.
 
 The October 6 end-to-end run completed in
 `project1_outputs/experiment-suite-2026-10-06/`. It built a fresh index, ran

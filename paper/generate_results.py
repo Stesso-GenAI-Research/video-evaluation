@@ -21,7 +21,7 @@ def generate(suite: Path, output: Path) -> None:
     if not any(row["sha256"] == baseline_digest for row in manifest["outputs"]):
         raise ValueError("Baseline report does not match its recorded manifest")
     baseline = json.loads(baseline_path.read_text())
-    lines = [f"% Source: {suite}", f"% Summary SHA-256: {digest}"]
+    lines = [f"% Source suite: {suite.name}", f"% Summary SHA-256: {digest}"]
 
     def macro(name, value):
         lines.append("\\newcommand{\\" + name + "}{" + str(value) + "}")
@@ -29,7 +29,8 @@ def generate(suite: Path, output: Path) -> None:
     def table(name, rows):
         macro(name, "\n" + "\n".join(" & ".join(row) + r" \\" for row in rows) + "\n")
 
-    percent = lambda x: f"{100*x:.2f}"
+    def percent(x):
+        return f"{100*x:.2f}"
     labels = {"lexical_tfidf": "Lexical TF--IDF", "structured_action": "Structured",
               "hybrid": "Hybrid (50/50)"}
     profile = summary["data_profile"]

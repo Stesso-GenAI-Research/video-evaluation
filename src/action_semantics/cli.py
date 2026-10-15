@@ -28,6 +28,9 @@ from .retrieval.benchmark import run_field_heldout_benchmark
 from .retrieval.preference_evaluation import run_preference_evaluation
 from .retrieval.search import rank_indexed_clips, write_search_results
 from .sample_analysis import run_indexed_video_analysis as run_indexed_video_analysis_impl
+from .study_preparation import (
+    check_prospective_holdout, export_reviewed_pairs, prepare_review_kit,
+)
 from .synthetic_preferences import (
     DEFAULT_CONTROLLED_STEP_COUNT,
     generate_controlled_preferences,
@@ -36,6 +39,46 @@ from .synthetic_preferences import (
 from .verification import verify_output_repository, verify_structured_analysis
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+
+
+@app.command("prepare-review")
+def prepare_review(
+    suite: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+    output_dir: Annotated[Path, typer.Option()],
+    per_stratum: Annotated[int, typer.Option(min=1)] = 12,
+    seed: Annotated[int, typer.Option()] = 42,
+) -> None:
+    """Prepare blank parser and randomized diagnostic preference worksheets."""
+    result = prepare_review_kit(suite=suite, output_dir=output_dir,
+                                per_stratum=per_stratum, seed=seed)
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("export-reviewed-pairs")
+def export_review(
+    kit: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+    worksheet: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+    output_dir: Annotated[Path, typer.Option()],
+    judge: Annotated[str, typer.Option()],
+) -> None:
+    """Validate a completed review and export only observed A/B decisions."""
+    result = export_reviewed_pairs(kit=kit, worksheet=worksheet,
+                                    output_dir=output_dir, judge=judge)
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("check-holdout")
+def check_holdout(
+    development_source: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+    candidate_source: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+    output_dir: Annotated[Path, typer.Option()],
+) -> None:
+    """Reject video overlap with prior development; this does not certify a final test."""
+    result = check_prospective_holdout(development_source=development_source,
+                                       candidate_source=candidate_source, output_dir=output_dir)
+    typer.echo(json.dumps({k: v for k, v in result.items() if k not in {"overlaps", "duplicates"}}, indent=2))
+    if result["status"] == "fail":
+        raise typer.Exit(2)
 
 
 @app.command("experiment-suite")

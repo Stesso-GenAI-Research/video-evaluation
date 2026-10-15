@@ -26,7 +26,7 @@
 \input{generated/results.tex}
 \title{\vspace{-1.8em}\textbf{Action Semantics and Terminology Normalization\\for Instructional Video Retrieval}}
 \author{\textit{Author and affiliation to be added}}
-\date{Working manuscript\quad October 6, 2026}
+\date{Working manuscript\quad October 15, 2026}
 \hypersetup{pdftitle={Action Semantics and Terminology Normalization for Instructional Video Retrieval},
   pdfsubject={Development experiments and evaluation protocol},pdfauthor={}}
 
@@ -198,7 +198,7 @@ index, mismatched-parenthesis flags fell from 111 to zero, and placeholder-name
 flags fell from 91 to zero. These counts describe audit flags, not a manually
 estimated error rate.
 
-The active lexicon contains nine directional rewrites covering seven preferred
+The active lexicon contains nine directional rewrites covering six preferred
 terms. Examples include ``gypsum board'' and ``plasterboard'' to ``drywall,''
 ``measuring tape'' to ``tape measure,'' and ``mitre saw'' to ``miter saw.''
 The same normalization is applied to queries and candidate representations.
@@ -349,6 +349,16 @@ These counts identify cases for inspection; they do not, by themselves,
 establish whether a failure was caused by missing source information, an
 incorrect parse, an inadequate lexicon, or the scoring rule.
 
+A further audit partitions the 415 comparisons in which both structured
+scores are zero. In 21 comparisons, the query has no parsed action. In 58,
+one candidate has no parsed actions. In the remaining 336, the query and both
+candidates have parsed actions, but both selected alignments have zero action
+match. Thus about 81\% of these zero-score comparisons still contain parsed
+actions on both sides. This narrows the next review to the extracted actions
+and their compatibility, rather than treating every zero as an absent parse.
+It does not establish a synonym error: negation mismatches or genuinely
+different actions can also produce zero action match.
+
 \begin{table}[htbp]\centering\small
 \caption{Diagnostic counts, reported separately by construction procedure.
 Rows overlap and must not be summed as distinct errors.}\label{tab:diagnostics}
@@ -435,6 +445,26 @@ copies the existing labels unchanged; omitting it constructs new development
 datasets. These two modes must be distinguished when comparing runs.
 
 \section{Outstanding study materials}
-\pending{Final annotation protocol, annotator details, prospective test
-manifest, and release or access conditions for the private data.}
+A review packet has been prepared with the existing 60 extraction examples
+and 44 diagnostic preference comparisons. The latter sample contains one
+comparison per selected source step, with randomized A/B order and no model
+scores or constructed winners shown in the worksheet. It includes eight
+query-parse cases and twelve cases from each of three further diagnostic
+groups. These groups guide case selection; they do not define the true cause
+of an error. All human response fields remain blank.
+
+Preference responses allow A, B, tie, and unjudgeable, with a blank response
+treated as pending. The export tool preserves tie, unjudgeable, and pending
+counts while exporting only observed A/B choices to the binary evaluator.
+The sample is intended for diagnosis, so agreement on these cases must not
+be presented as the final independent preference result.
+
+A prospective source-overlap check compares database identifiers, YouTube
+identifiers, and normalized URLs with the development export. The current
+250-video export fails this check against itself, as expected. Passing this
+check would establish only that these identifiers are disjoint; it would not
+detect every reupload or prove that queries and judgments were unseen.
+
+\pending{Final annotation protocol approval, annotator details, prospective
+test data and manifest, and release or access conditions for the private data.}
 \end{document}

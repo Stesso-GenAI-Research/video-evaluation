@@ -33,6 +33,9 @@ The repository compares three methods:
 | Build large score-independent contrast pairs | Working |
 | Inventory pairwise scorer disagreements | Working; descriptive case table with no tuning |
 | Run an automatic benchmark | Working as a development test |
+| Prepare diagnostic human review | Ready: 60 extraction rows and 44 randomized A/B cases |
+| Check prospective video overlap | Working; checks database IDs, YouTube identities, and URLs |
+| Build the paper draft | Nine-page single-column LaTeX manuscript with generated result tables |
 | Prove the new search is better | **Not complete; the real W25 preference export is still needed** |
 
 This is a local research pipeline, not a deployed website or search API. It
@@ -109,6 +112,8 @@ the Stesso meeting update are maintained in the
 
 ## Documentation
 
+- [Manuscript and reproducible PDF build](paper/README.md)
+- [Study completion: review worksheets, export commands, and prospective protocol](docs/study-completion.md)
 - [Terminology audit, lexicon proposal, and next experiment](docs/terminology-normalization.md)
 - [Project status, experiments, and execution guide](docs/stesso-project-update.md)
 - [How the system works](docs/how-it-works.md)
