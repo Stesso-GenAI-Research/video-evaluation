@@ -13,6 +13,7 @@ import random
 from collections import Counter
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from .experiment_suite import CORPORA
 from .io_utils import sha256_file, write_csv, write_jsonl
@@ -32,7 +33,7 @@ def _rows(path):
 
 
 def _csv(path):
-    with path.open(newline="", encoding="utf-8") as stream:
+    with path.open(newline="", encoding="utf-8-sig") as stream:
         return list(csv.DictReader(stream))
 
 
@@ -69,7 +70,11 @@ def prepare_review_kit(*, suite: Path, output_dir: Path, per_stratum: int = 12,
     clips = {c["clip_id"]: c for c in _rows(clips_path)}
     extraction_path = suite / "index/quality/manual_review_sample.csv"
     extraction = _csv(extraction_path)
-    inputs = [clips_path, extraction_path]
+    # Start a new assignment without carrying earlier annotators' answers forward.
+    for row in extraction:
+        for field in ("action_correct", "object_correct", "tool_correct", "notes"):
+            row[field] = ""
+    inputs = [clips_path, extraction_path, suite / "summary.json"]
     candidates, evidence, steps = [], {}, {}
     for corpus in CORPORA:
         root = suite / "pairwise" / corpus
@@ -131,25 +136,43 @@ def prepare_review_kit(*, suite: Path, output_dir: Path, per_stratum: int = 12,
         review.append(row)
         key_rows[review_id] = {"immutable": _immutable(row), "stratum": stratum,
                                "original_comparison_id": pair["comparison_id"], "corpus": corpus}
+        original_ids = [pair["resolved_canonical_clip_a_id"], pair["resolved_canonical_clip_b_id"]]
+        key_rows[review_id]["frozen_scores"] = {
+            method: {side: pair[f"{method}_{'ab'[original_ids.index(clip_id)]}_score"]
+                     for side, clip_id in zip(("a", "b"), ids, strict=True)}
+            for method in ("lexical", "structured", "hybrid")}
         selected_step_rows[step_id] = {**steps[(corpus, pair["step_id"])], "id": step_id}
-    for row in extraction:
+    for number, row in enumerate(extraction, start=1):
         clip = clips[row["clip_id"]]
         metadata = clip["gemini_metadata"]["clip"]
         row.update(video_url=clip.get("url") or "", start_seconds=metadata["start_seconds"],
                    end_seconds=metadata["end_seconds"])
+        row["review_id"] = f"extraction-{number:03d}"
+    recorded = {(Path(r["path"]).name, r["sha256"])
+                for r in _json(suite / "manifest.json")["outputs"]}
+    for path in inputs:
+        if (path.name, sha256_file(path)) not in recorded:
+            raise ValueError(f"Review input differs from completed suite manifest: {path}")
     output_dir.mkdir(parents=True, exist_ok=False)
     private = output_dir / "private"
     private.mkdir()
     write_csv(output_dir / "extraction_review.csv", extraction)
     write_csv(output_dir / "preference_review.csv", review)
-    _write(private / "review_key.json", {"rows": key_rows, "steps": selected_step_rows})
+    extraction_answers = {"action_correct", "object_correct", "tool_correct", "notes"}
+    extraction_key = {r["review_id"]: {k: v for k, v in r.items() if k not in extraction_answers}
+                      for r in _csv(output_dir / "extraction_review.csv")}
+    _write(private / "review_key.json", {"rows": key_rows, "steps": selected_step_rows,
+                                        "extraction_rows": extraction_key})
     _write(output_dir / "diagnostic_evidence.json", evidence)
-    manifest = {"purpose": "diagnostic_human_review_pilot", "held_out": False,
+    manifest = {"schema_version": 2, "purpose": "diagnostic_human_review_pilot", "held_out": False,
                 "representative_accuracy_sample": False, "seed": seed,
                 "requested_per_stratum": per_stratum, "selected_by_stratum": dict(stratum_counts),
                 "preference_rows": len(review), "extraction_rows": len(extraction),
                 "one_comparison_per_source_step": True,
-                "input_sha256": {str(p): sha256_file(p) for p in inputs}}
+                "input_sha256": {str(p): sha256_file(p) for p in inputs},
+                "review_key_sha256": sha256_file(private / "review_key.json"),
+                "source_suite_summary_sha256": sha256_file(suite / "summary.json"),
+                "score_policy": "Recorded development scores, aligned with randomized A/B identities; no refitting."}
     _write(output_dir / "manifest.json", manifest)
     (output_dir / "README.md").write_text(
         "# Diagnostic review packet\n\n"
@@ -159,7 +182,7 @@ def prepare_review_kit(*, suite: Path, output_dir: Path, per_stratum: int = 12,
         "## Extraction review\n\n"
         "Read the source sentence and proposed action, object and direct-tool terms. "
         "Enter yes/no in `action_correct`, `object_correct`, and `tool_correct`. "
-        "Leave a dimension blank if you cannot judge it; explain in notes. A missing direct tool "
+        "Use `unjudgeable` if a dimension cannot be judged; blank means pending. Explain in notes. A missing direct tool "
         "is correct when the sentence states no direct tool. Record-level tool context is "
         "not evidence of a grammatical tool attachment. Do not treat confidence as correctness. "
         "These 60 rows were sampled by diagnostic group; group results do not estimate "
@@ -178,13 +201,28 @@ def prepare_review_kit(*, suite: Path, output_dir: Path, per_stratum: int = 12,
         "are retained in export accounting and excluded explicitly from binary scoring. "
         "Each reviewer should complete a separate copy; do not combine different reviewers "
         "into one judgment without a stated adjudication procedure.\n", encoding="utf-8")
+    package_review_worksheets(output_dir)
     return manifest
+
+
+def package_review_worksheets(kit: Path) -> Path:
+    """Package only reviewer-facing files, never the answer key or model scores."""
+    target = kit / "reviewer-packet.zip"
+    with ZipFile(target, "x", compression=ZIP_DEFLATED) as archive:
+        for name in ("README.md", "extraction_review.csv", "preference_review.csv"):
+            archive.write(kit / name, arcname=name)
+    return target
 
 
 def export_reviewed_pairs(*, kit: Path, worksheet: Path, output_dir: Path, judge: str) -> dict:
     if not judge.strip():
         raise ValueError("A nonblank judge identifier is required")
     key = _json(kit / "private/review_key.json")
+    manifest_path = kit / "manifest.json"
+    if manifest_path.exists():
+        expected = _json(manifest_path).get("review_key_sha256")
+        if expected and sha256_file(kit / "private/review_key.json") != expected:
+            raise ValueError("Review key hash changed")
     rows = _csv(worksheet)
     ids = [r.get("review_id") for r in rows]
     if len(ids) != len(set(ids)) or set(ids) != set(key["rows"]):

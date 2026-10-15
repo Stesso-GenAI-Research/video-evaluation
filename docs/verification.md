@@ -18,7 +18,7 @@ Run:
 Latest result:
 
 ```text
-133 tests passed
+149 tests passed
 All Ruff checks passed
 Python source and tests compiled
 Bash syntax check passed
@@ -27,6 +27,10 @@ CLI help rendered successfully
 
 The suite covers:
 
+- returned-sheet validation, saved-score agreement and paired differences,
+  explicit pending/unjudgeable states, and reviewer agreement;
+- refusal to insert partial, modified, or different-suite review results into
+  the manuscript, plus a reviewer ZIP that excludes the private key;
 - human-review export validation, explicit abstention accounting, and protection
   against inferred labels or edited clip identities;
 - prospective overlap detection, including reidentified YouTube videos and
@@ -63,9 +67,19 @@ The prospective overlap guard was run with the existing export on both sides.
 It detected all 250 overlapping videos and returned the expected failure status.
 This verifies rejection behavior; it is not a prospective evaluation.
 
-The nine-page manuscript builds with LaTeX/BibTeX from hash-verified result
+The ten-page manuscript builds with LaTeX/BibTeX from hash-verified result
 tables. The build also produces a source bundle that excludes private datasets
 and review worksheets.
+
+The current packet is `project1_outputs/review-kit-ready-2026-10-15/` and uses
+schema version 2. Each saved model score was checked against the original
+comparison after randomized A/B ordering. The blank-sheet analysis correctly
+reports 224 pending answers and no human accuracy. A temporary integration
+check supplied explicitly synthetic A/B, tie, unjudgeable, and extraction
+answers, then ran the analysis, binary export, suite/hash validation, and PDF
+and ZIP build. Building again without a review argument restored the placeholder.
+Synthetic answers were removed with their temporary directory and never entered
+the actual worksheets or manuscript.
 
 The October 6 end-to-end run completed in
 `project1_outputs/experiment-suite-2026-10-06/`. It built a fresh index, ran

@@ -23,14 +23,36 @@ tables: run `latexmk -pdf -outdir=build main.tex` from this directory. The sourc
 bundle includes those tables and the bibliography; it excludes source datasets
 and human-review worksheets.
 
-The manuscript leaves explicit placeholders for related work, the original
+The manuscript now includes a focused related-work section on HowTo100M,
+CrossTask, and controlled vocabulary labels, checked against primary sources.
+Its prose follows the author's examples: a concrete search problem leads into
+the methods, observations, and remaining research questions. Conventional
+section headings and plain typography replace the earlier report styling.
+
+The manuscript leaves explicit placeholders for the original
 annotation procedure, independent human preference evaluation, reviewed parser
 accuracy, prospective held-out results, acknowledgments, and final conclusions.
 It reports a negative development result without presenting constructed labels
 as human preferences. The protocol and study tools are described in
 `../docs/study-completion.md`.
 
-Before submission, supply the author information, finalize the literature
-review, verify permissions for private data, complete the human studies, and
+Once the version 2 review packet is complete, run `analyze-review` as described
+in the [study guide](../docs/study-completion.md), then include its results:
+
+```bash
+bash paper/build.sh \
+  project1_outputs/experiment-suite-2026-10-06 \
+  project1_outputs/completed-review
+```
+
+The second argument is the analysis directory. Its JSON and LaTeX hashes must
+match its manifest, and the review must have no pending responses. The generated
+section reports diagnostic results only; independent preference and prospective
+results retain their separate placeholders. Running the build without a review
+argument restores the diagnostic placeholder, preventing accidental reuse of
+results from an earlier build. Do not edit `generated/review-results.tex` by hand.
+
+Before submission, supply the author information, review the literature coverage
+for the intended venue, verify permissions for private data, complete the human studies, and
 replace the marked result placeholders. The current draft is not a completed
 validation study.

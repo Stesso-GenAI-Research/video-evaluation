@@ -342,7 +342,30 @@ SAMPLE_OUTPUT_DIR=project1_outputs/indexed-video-larger \
   ./scripts/run_local_pipeline.sh all
 ```
 
-## Common problems
+## Returned review sheets
+
+For the current diagnostic review, use the direct CLI after reviewers return
+their sheets:
+
+```bash
+.venv/bin/action-semantics analyze-review \
+  --kit project1_outputs/review-kit-ready-2026-10-15 \
+  --extraction project1_outputs/reviewer-01/extraction_review.csv \
+  --preferences project1_outputs/reviewer-01/preference_review.csv \
+  --judge reviewer-01 --output-dir project1_outputs/completed-review
+
+bash paper/build.sh \
+  project1_outputs/experiment-suite-2026-10-06 \
+  project1_outputs/completed-review
+```
+
+`prepare-review` creates a new version 2 packet; `compare-reviewers` compares
+two returned preference sheets. The [study guide](study-completion.md) explains
+their inputs, abstention handling, and the separate independent evaluation.
+Use a fresh output directory for every analysis. For a progress report, add
+`--allow-partial`; its incomplete results cannot populate the paper.
+
+## Troubleshooting
 
 - **The input file is missing:** place the private export at the repository
   root or set `SAMPLE_JSONL` to its path.

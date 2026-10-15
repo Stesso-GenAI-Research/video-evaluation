@@ -33,14 +33,21 @@ run. The original source and all copied development labels are unchanged.
 both pairwise evaluations and both diagnostic inventories completed. The
 suite checks identical query cohorts and index provenance, counts tied ranks
 fractionally, refuses output overwrites, and records failed stages explicitly.
-All 133 automated tests pass.
+All 149 automated tests pass.
 
 The [single-column manuscript](../paper/README.md) now includes the measured
-results, methodological limitations, and placeholders for unfinished studies.
+results, focused related work, methodological limitations, and placeholders for
+unfinished studies. Its introduction and discussion have been rewritten in the
+author's voice, with connected paragraphs and simpler academic formatting.
 The [study completion guide](study-completion.md) provides a 60-row parser
 worksheet, 44 randomized diagnostic preference cases, a validated judgment
-exporter, and a prospective source-overlap guard. These additions prepare the
-human work without filling any judgments or changing frozen scoring.
+exporter, and a prospective source-overlap guard. The current packet is
+`project1_outputs/review-kit-ready-2026-10-15/`; its reviewer ZIP excludes the
+private key and scores. `analyze-review` validates both returned sheets, uses
+scores recorded before review, and produces agreement, paired intervals,
+extraction coverage, and paper tables. `compare-reviewers` reports agreement
+and prepares disagreements for human adjudication. A blank-sheet check reports
+224 pending responses and no human accuracy. No scoring settings have changed.
 
 **Research status:** lexical TF-IDF remains strongest. A negative result is a
 valid finding; successful execution does not establish a structured-method
@@ -432,7 +439,7 @@ preference data.
 October 15 completion priorities:
 
 1. Complete the 60-row parser review in
-   `project1_outputs/review-kit-2026-10-15/extraction_review.csv`; judge actions, objects and tools
+   `project1_outputs/review-kit-ready-2026-10-15/extraction_review.csv`; judge actions, objects and tools
    against their source sentences before changing extraction rules.
 2. Obtain independently observed A/B judgments plus step text, and execute the
    frozen preference evaluation. Human authorship of clip metadata does not
@@ -442,7 +449,12 @@ October 15 completion priorities:
    but zero selected action matches; review their compatibility before changing
    synonyms or parsing. Obtain new evaluation videos: the existing 250 are
    development-exposed and fail the overlap guard against themselves.
-4. Write the final research conclusion from that evaluation, including a
+4. Run `analyze-review` and pass its completed output to `paper/build.sh` using
+   the [two-command handoff](study-completion.md). Reviewers' ties, abstentions,
+   and pending answers are accounted for explicitly; partial reviews cannot
+   populate the manuscript. These diagnostic results do not replace W25 or a
+   prospective test.
+5. Write the final research conclusion from that evaluation, including a
    negative result if structured scoring still fails to beat lexical matching.
 
 September 22 implementation: inventory parsing fixes eliminate all 111
@@ -474,11 +486,11 @@ remain separate from the frozen primary evaluation below.
 The latest complete check produced:
 
 ```text
-133 tests passed
+149 tests passed
 All Ruff checks passed
 Python source and tests compiled
 Bash syntax check passed
-CLI help passed for generate-contrast-pairs, evaluate-pairs, and analyze-pairs
+CLI help passed, including analyze-review and compare-reviewers
 ```
 
 See [Current verification record](verification.md) for test scope. See

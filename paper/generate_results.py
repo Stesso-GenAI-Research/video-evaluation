@@ -6,7 +6,19 @@ import json
 from pathlib import Path
 
 
-def generate(suite: Path, output: Path) -> None:
+def generate(suite: Path, output: Path, review_results: Path | None = None) -> None:
+    review_tex = (r"\newcommand{\HumanReviewResults}{\pending{Diagnostic extraction and preference "
+                  r"judgments have not yet been returned.}}" + "\n")
+    if review_results is not None:
+        review_manifest = json.loads((review_results / "manifest.json").read_text())
+        for name in ("analysis.json", "review-results.tex"):
+            digest = hashlib.sha256((review_results / name).read_bytes()).hexdigest()
+            if digest != review_manifest["outputs"].get(name):
+                raise ValueError(f"Review result hash changed: {name}")
+        review = json.loads((review_results / "analysis.json").read_text())
+        if review.get("status") != "complete" or review.get("purpose") != "diagnostic_human_review_pilot":
+            raise ValueError("Only a completed diagnostic review can populate the manuscript")
+        review_tex = (review_results / "review-results.tex").read_text()
     manifest = json.loads((suite / "manifest.json").read_text())
     summary_path = suite / "summary.json"
     digest = hashlib.sha256(summary_path.read_bytes()).hexdigest()
@@ -14,6 +26,8 @@ def generate(suite: Path, output: Path) -> None:
                for row in manifest["outputs"]):
         raise ValueError("Suite summary does not match its recorded manifest")
     summary = json.loads(summary_path.read_text())
+    if review_results is not None and review.get("source_suite_summary_sha256") != digest:
+        raise ValueError("Review packet and manuscript use different experiment suites")
     if summary["status"] != "complete":
         raise ValueError("Only completed experiment runs can populate the manuscript")
     baseline_path = suite / "retrieval/baseline/benchmark_summary.json"
@@ -91,11 +105,13 @@ def generate(suite: Path, output: Path) -> None:
                                         for name, _ in names] for flag, label in flags])
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (output.parent / "review-results.tex").write_text(review_tex, encoding="utf-8")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--suite", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("paper/generated/results.tex"))
+    parser.add_argument("--review-results", type=Path)
     args = parser.parse_args()
-    generate(args.suite, args.output)
+    generate(args.suite, args.output, args.review_results)

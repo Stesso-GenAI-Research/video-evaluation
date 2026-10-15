@@ -31,6 +31,7 @@ from .sample_analysis import run_indexed_video_analysis as run_indexed_video_ana
 from .study_preparation import (
     check_prospective_holdout, export_reviewed_pairs, prepare_review_kit,
 )
+from .review_analysis import analyze_review, compare_reviewers
 from .synthetic_preferences import (
     DEFAULT_CONTROLLED_STEP_COUNT,
     generate_controlled_preferences,
@@ -39,6 +40,37 @@ from .synthetic_preferences import (
 from .verification import verify_output_repository, verify_structured_analysis
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+
+
+@app.command("analyze-review")
+def analyze_completed_review(
+    kit: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+    extraction: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+    preferences: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+    output_dir: Annotated[Path, typer.Option()],
+    judge: Annotated[str, typer.Option()],
+    allow_partial: Annotated[bool, typer.Option()] = False,
+    seed: Annotated[int, typer.Option()] = 42,
+    bootstrap_iterations: Annotated[int, typer.Option(min=1)] = 5000,
+) -> None:
+    """Validate returned sheets and produce diagnostic results and manuscript tables."""
+    result = analyze_review(kit=kit, extraction=extraction, preferences=preferences,
+                            output_dir=output_dir, judge=judge, allow_partial=allow_partial,
+                            seed=seed, draws=bootstrap_iterations)
+    typer.echo(json.dumps({"status": result["status"], "pending_responses": result["pending_responses"],
+                           "output_dir": str(output_dir)}, indent=2))
+
+
+@app.command("compare-reviewers")
+def compare_completed_reviewers(
+    kit: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+    first: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+    second: Annotated[Path, typer.Option(exists=True, dir_okay=False)],
+    output_dir: Annotated[Path, typer.Option()],
+) -> None:
+    """Measure preference agreement and prepare blank adjudication fields."""
+    typer.echo(json.dumps(compare_reviewers(kit=kit, first=first, second=second,
+                                            output_dir=output_dir), indent=2))
 
 
 @app.command("prepare-review")

@@ -35,8 +35,10 @@ The repository compares three methods:
 | Run an automatic benchmark | Working as a development test |
 | Prepare diagnostic human review | Ready: 60 extraction rows and 44 randomized A/B cases |
 | Check prospective video overlap | Working; checks database IDs, YouTube identities, and URLs |
-| Build the paper draft | Nine-page single-column LaTeX manuscript with generated result tables |
-| Prove the new search is better | **Not complete; the real W25 preference export is still needed** |
+| Analyze returned reviews | One command validates both sheets, reports agreement and coverage, and generates paper tables |
+| Compare two reviewers | Agreement statistics and a disagreement sheet; adjudication remains human |
+| Build the paper draft | Single-column LaTeX manuscript with generated development and optional human-review tables |
+| Evaluate independent preferences | The evaluator is ready; authentic W25 judgments or a new evaluation dataset are still needed |
 
 This is a local research pipeline, not a deployed website or search API. It
 does, however, provide the functional search and comparison tools needed to run
@@ -110,6 +112,14 @@ Current counts, result tables, exact commands, output paths, limitations, and
 the Stesso meeting update are maintained in the
 [project status, experiments, and execution guide](docs/stesso-project-update.md).
 
+The latest review packet is `project1_outputs/review-kit-ready-2026-10-15/`.
+It preserves the model scores recorded before review and gives each extraction
+row a stable identity. Once the reviewers return their copies, `analyze-review`
+validates the answers and generates the diagnostic result tables. The
+[study completion guide](docs/study-completion.md) gives the two commands needed
+to analyze those sheets and include the results in the paper. The earlier packet
+remains available; no entered labels are overwritten.
+
 ## Documentation
 
 - [Manuscript and reproducible PDF build](paper/README.md)
@@ -122,3 +132,4 @@ the Stesso meeting update are maintained in the
 - [Experiment methodology and interpretation](docs/experiments-and-results.md)
 - [Current verification record](docs/verification.md)
 - [Input data contracts](data_contracts/README.md)
+- [Writing style](docs/writing-style.md)

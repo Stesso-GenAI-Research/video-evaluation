@@ -7,6 +7,7 @@ from action_semantics.io_utils import write_csv, write_jsonl
 from action_semantics.retrieval.preference_evaluation import PreferencePairInput, PreferenceStepInput
 from action_semantics.study_preparation import (
     ANSWER_FIELDS, _evidence_group, check_prospective_holdout, export_reviewed_pairs,
+    package_review_worksheets,
 )
 
 
@@ -108,3 +109,16 @@ def test_zero_evidence_analysis_distinguishes_missing_parses_from_zero_matching(
     assert _evidence_group(row) == "both_candidates_parsed_but_zero_action_match"
     row["query_diagnostics"]["missing_action_parse"] = True
     assert _evidence_group(row) == "query_has_no_parsed_action"
+
+
+def test_reviewer_zip_excludes_private_key_and_scores(tmp_path):
+    from zipfile import ZipFile
+
+    args = _kit(tmp_path, [''])
+    (args['kit'] / 'README.md').write_text('Reviewer instructions')
+    (args['kit'] / 'extraction_review.csv').write_text('action_correct\n')
+    path = package_review_worksheets(args['kit'])
+    with ZipFile(path) as archive:
+        assert set(archive.namelist()) == {'README.md', 'extraction_review.csv', 'preference_review.csv'}
+    with pytest.raises(FileExistsError):
+        package_review_worksheets(args['kit'])
