@@ -18,6 +18,14 @@ Project 1 Step 1 has separate current contracts for evaluating preferences that
 have already been judged. They intentionally do not replace the older generic
 pairwise files described at the end of this page.
 
+The version 2 diagnostic review uses CSV worksheets created by `prepare-review`.
+All columns except the documented answer and notes fields are protected.
+Extraction responses are `yes`, `no`, or `unjudgeable`; preference responses are
+`A`, `B`, `tie`, or `unjudgeable`; blanks mean pending. `analyze-review` checks
+the sheets against the hashed private key and exports only observed A/B choices
+to the JSONL preference contracts below. The [study guide](../docs/study-completion.md)
+describes the complete workflow and preserves abstentions outside binary scoring.
+
 ## `preference_pairs.schema.json`
 
 This is the current contract for one already-judged A/B clip comparison. The

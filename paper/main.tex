@@ -3,30 +3,24 @@
 \usepackage[T1]{fontenc}
 \usepackage{lmodern,microtype}
 \usepackage{amsmath,amssymb,booktabs,tabularx}
-\usepackage{xcolor,enumitem,titlesec,fancyhdr}
+\usepackage{enumitem,titlesec}
 \usepackage[font=small,labelfont=bf]{caption}
 \usepackage[numbers,sort&compress]{natbib}
 \usepackage[hidelinks]{hyperref}
 \usepackage{xurl}
-\definecolor{ink}{HTML}{243746}
-\definecolor{muted}{HTML}{646B72}
-\titleformat{\section}{\large\bfseries\color{ink}}{\thesection}{0.7em}{}
+\titleformat{\section}{\large\bfseries}{\thesection}{0.7em}{}
 \titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.7em}{}
 \setlength{\parindent}{1.1em}
 \setlength{\parskip}{0.15em}
-\setlength{\headheight}{14pt}
 \setlist{nosep,leftmargin=1.5em}
 \renewcommand{\arraystretch}{1.16}
-\pagestyle{fancy}
-\fancyhf{}
-\fancyhead[L]{\small\color{muted}Action semantics for instructional video retrieval}
-\fancyfoot[C]{\small\thepage}
-\renewcommand{\headrulewidth}{0.2pt}
-\newcommand{\pending}[1]{\par\noindent\textcolor{muted}{\textit{[To be completed: #1]}}\par\vspace{0.6em}}
+\pagestyle{plain}
+\newcommand{\pending}[1]{\par\noindent\textit{[#1]}\par\vspace{0.6em}}
 \input{generated/results.tex}
+\input{generated/review-results.tex}
 \title{\vspace{-1.8em}\textbf{Action Semantics and Terminology Normalization\\for Instructional Video Retrieval}}
 \author{\textit{Author and affiliation to be added}}
-\date{Working manuscript\quad October 6, 2026}
+\date{Working manuscript\quad October 16, 2026}
 \hypersetup{pdftitle={Action Semantics and Terminology Normalization for Instructional Video Retrieval},
   pdfsubject={Development experiments and evaluation protocol},pdfauthor={}}
 
@@ -34,53 +28,84 @@
 \maketitle
 \thispagestyle{empty}
 \begin{abstract}
-Instructional video search requires more than finding clips about the same
-topic. A useful result should show the requested action on the appropriate
-object. This study compares lexical TF--IDF matching, structured
-action--object--tool matching, and an equal-weight hybrid using human-written
-annotations from \VideoCount{} videos. Validation and deduplication produce
-\ClipCount{} canonical clips. A field-held-out development benchmark evaluates
-\QueryCount{} clip-name queries against \CandidateCount{} candidates whose
-representations exclude clip names and parent-video text. Lexical matching
-achieves \LexicalHitOne\% Hit@1, compared with \StructuredHitOne\% for
-structured matching and \HybridHitOne\% for the hybrid. Two constructed
-pairwise datasets also favor lexical matching. Inventory parsing fixes remove
-identified formatting defects, while a small terminology lexicon yields no
-aggregate Hit@1 improvement. These results establish a working evaluation
-pipeline and identify weaknesses in the current structured representation.
-Independent human preference evaluation and final held-out validation remain
-incomplete.
+A person searching for instructions to remove a faucet needs to find the
+removal step, even when an installation video uses many of the same words.
+This study examines whether representing actions, objects, and tools explicitly
+can help distinguish these instructions. I compare lexical TF--IDF matching,
+structured matching, and an equal-weight combination using human-written
+annotations from \VideoCount{} videos. After validation and deduplication,
+the dataset contains \ClipCount{} clips. A development benchmark uses
+\QueryCount{} clip names as queries and searches \CandidateCount{} clips
+without using their names or parent-video text as candidate evidence.
+Lexical matching achieves \LexicalHitOne\% Hit@1, compared with
+\StructuredHitOne\% for structured matching and \HybridHitOne\% for the
+combined method. Lexical matching also leads on two constructed pairwise
+datasets. Cleaning inventory fields removes identified parsing defects, but
+the tested synonym rules do not improve aggregate Hit@1. The results suggest
+that the current action representation loses useful matching evidence.
+Independent human judgments and evaluation on new videos are still needed
+to determine how these findings extend to actual search preferences.
 \end{abstract}
 
 \section{Introduction}
-A request such as ``remove the old faucet'' is specific about both an action
-and an object. A clip about installing a faucet may share much of the same
-vocabulary while answering a different question. This motivates representing
-what an instruction asks someone to do, rather than relying only on shared
-words.
+Finding a useful instructional clip can depend on a small difference in
+wording. Someone replacing a faucet may first need to loosen its fittings
+and remove the old fixture. A search result showing how to install a new
+faucet shares the object and much of the surrounding vocabulary, yet skips
+the step that person needs. This problem led me to examine whether a search
+system could use the action, its object, and the relevant tools to make a
+more precise match.
 
-The central question is whether an explicit action--object--tool
-representation improves matching between a project step and an instructional
-clip. The present implementation compares this representation with a lexical
-baseline and a fixed hybrid. It also examines a practical data issue:
-different names can refer to the same object or tool. For example, an
-annotation may use ``plasterboard'' where a query uses ``drywall.'' Human
-authorship establishes the source of the annotations, but does not guarantee
-consistent terminology or complete fields.
+I began with human-written annotations that describe individual steps in
+instructional videos. These records provide a practical starting point
+because they already identify short clips and describe the work taking place.
+They also expose a difficulty that ordinary word matching does not fully
+address. One annotation may describe ``plasterboard,'' while a person searching
+for the same material writes ``drywall.'' At the same time, two tools listed
+as possible substitutes should not automatically become synonyms. Treating
+those relationships carefully is necessary if normalization is to preserve
+what the annotation means.
 
-This manuscript reports the completed development experiments. It separates
-three questions: whether the pipeline runs correctly, whether a scorer
-recovers a target defined by the benchmark, and whether the scorer agrees
-with independent human judgments. The current evidence answers the first two.
-It does not yet answer the third.
+Through this project, I compare ordinary word matching with an explicit
+action representation and a combination of the two. I also test whether
+cleaner inventory parsing and a small terminology lexicon change retrieval
+performance. The experiments provide a working comparison on the available
+data, but their targets come from the annotations themselves. Human authorship
+of those annotations does not establish which of two clips a viewer would
+prefer. That separate question remains part of the human evaluation.
 
 \section{Related work}
-\pending{A focused review of instructional video retrieval, lexical and
-semantic retrieval baselines, and terminology normalization. Establish the
-relationship to prior methods before making a claim of novelty.}
+Instructional videos have been used to study how language can identify
+actions in visual content. Miech et al.\ developed HowTo100M using narrated
+instructional videos and automatically transcribed speech to learn a shared
+representation of text and video~\cite{miech2019howto100m}. Their work connects
+a written request with visual evidence across a large collection. The present
+study has a narrower scope: it searches human-written clip annotations and
+does not learn from video frames or audio. Its results therefore describe
+annotation retrieval, rather than a direct comparison with a learned
+text--video model.
+
+Zhukov et al.\ examined how instructional steps can share action and object
+components across tasks~\cite{zhukov2019crosstask}. Their CrossTask work uses
+narration and ordered step lists to learn visual models with weak supervision.
+This supports the motivation for considering what an action operates on,
+since an action or object alone may occur in many different steps. Here,
+those components are extracted from text and compared using fixed rules.
+Whether that simpler representation helps retrieval is an empirical question;
+the results below show that it does not outperform the lexical baseline on
+the current benchmark.
+
+Terminology normalization also draws on established vocabulary practices.
+The Simple Knowledge Organization System distinguishes a concept's preferred
+label from alternative labels and provides separate relations for broader,
+narrower, and related concepts~\cite{skos2009}. That distinction is useful for
+this dataset: two names for drywall can map to one preferred term, whereas
+a tool offered as a substitute may serve a related purpose without being the
+same object. The current implementation uses a small local rewrite table,
+not a full SKOS vocabulary. It preserves ambiguous names until their context
+can be reviewed.
 
 \section{Data and preparation}
-\subsection{Source annotations and canonical clips}
 The supplied indexed-video export contains authentic human-generated
 annotations, as confirmed by the data owner. Each video contains timestamped
 clip records with a name and optional description, goal, tools, and supplies.
@@ -108,7 +133,6 @@ goals. Consequently, the retrieval benchmark uses a smaller candidate set
 with narrative evidence. Its results should not be interpreted as accuracy
 over every clip in the full index.
 
-\subsection{Annotation provenance and evaluation labels}
 Source authorship and evaluation-label construction are distinct. The source
 descriptions are human-written. The retrieval target is assigned by the
 relationship between fields belonging to the same clip. In the two development
@@ -116,15 +140,14 @@ pairwise datasets, a construction rule supplies the winning clip. Neither
 procedure establishes that a person compared the candidates and preferred
 that winner.
 
-\subsection{Collection and annotation procedure}
-\pending{Document video sampling, annotator instructions, authoring and review
-procedures, and any restrictions on releasing the data. These details have
-not been established from the local export.}
+\pending{Video sampling, original annotation instructions, reviewer details,
+and data-access conditions remain to be documented by the data owner.}
 
 \section{Methods}
 \subsection{Lexical baseline}
-The lexical method represents text using TF--IDF features for individual words
-and adjacent word pairs. The vectors are normalized to unit length, so their
+The lexical baseline gives more weight to words that help distinguish one
+clip from the rest of the collection. It represents individual words and
+adjacent word pairs using TF--IDF features. The vectors are normalized to unit length, so their
 dot product gives cosine similarity~\cite{sklearn}. The retrieval benchmark
 fits the vocabulary on candidate fields only and uses raw term frequency.
 The existing search and pairwise-evaluation path uses sublinear term
@@ -178,8 +201,8 @@ zero. The strongest candidate action is selected for each query action, and
 the resulting scores are averaged. A learned exploratory action taxonomy is
 recorded for diagnostics but does not affect ranking.
 
-\subsection{Hybrid matching}
-The fixed hybrid uses
+I also combine the two scores to test whether explicit action information
+can improve the lexical ranking. This fixed hybrid uses
 \begin{equation}
  H(q,c)=0.5L(q,c)+0.5S(q,c),
 \end{equation}
@@ -189,16 +212,17 @@ excludes such queries while retaining their clips as possible distractors.
 No hybrid-weight sweep is used to select the reported result.
 
 \subsection{Inventory cleanup and terminology normalization}
-The audit found that comma splitting sometimes broke valid parenthesized
-inventory lists. Parsed names also retained placeholders such as ``Unknown''
-and ``Unspecified.'' The revised parser respects grouped lists, preserves
-usage notes, and removes these placeholders from parsed names. Original
-annotations remain available for inspection. On the complete canonical
+While examining the inventory fields, I found that splitting every comma
+could break a valid list inside parentheses. The parsed names also retained
+placeholders such as ``Unknown'' and ``Unspecified,'' which supplied no useful
+tool information. I revised the parser to keep grouped lists together,
+preserve usage notes, and remove these placeholders from the parsed names.
+The original annotations remain available for inspection. Across the complete
 index, mismatched-parenthesis flags fell from 111 to zero, and placeholder-name
-flags fell from 91 to zero. These counts describe audit flags, not a manually
-estimated error rate.
+flags fell from 91 to zero. These counts measure the formatting problems
+identified by the audit; they do not establish that every inventory is correct.
 
-The active lexicon contains nine directional rewrites covering seven preferred
+The active lexicon contains nine directional rewrites covering six preferred
 terms. Examples include ``gypsum board'' and ``plasterboard'' to ``drywall,''
 ``measuring tape'' to ``tape measure,'' and ``mitre saw'' to ``miter saw.''
 The same normalization is applied to queries and candidate representations.
@@ -254,16 +278,18 @@ inputs unchanged, rather than regenerating winners after the code changes.
 The two datasets are reported separately because their selection procedures
 differ.
 
-\subsection{Independent human preference evaluation}
-\pending{Recruitment or annotation source, task instructions, independent A/B
-judgments, disagreement handling, missing-reference counts, and the frozen
-primary evaluation. No results are available yet.}
+The planned human evaluation asks reviewers to inspect both clips for a
+given request and record a preference, a tie, or an inability to judge.
+A diagnostic packet samples 44 development comparisons and 60 extraction
+examples. Its scores were recorded before review, and the analysis retains
+abstentions and missing responses. Because the cases were selected to examine
+specific weaknesses, their results will describe those cases rather than
+estimate performance on a new population. A separate test requires new videos
+and independently supplied requests or preferences; all 250 current videos
+have already informed development.
 
-\subsection{Prospective held-out evaluation}
-\pending{A new video pool and independently authored queries or judgments,
-with source overlap checks and a frozen evaluation protocol. The current
-250-video sample has already informed development and must not be described
-as an untouched test set.}
+\pending{Independent preference data, annotator details, and the prospective
+sample and sampling plan remain to be supplied.}
 
 \section{Results}
 \subsection{Retrieval performance}
@@ -349,6 +375,16 @@ These counts identify cases for inspection; they do not, by themselves,
 establish whether a failure was caused by missing source information, an
 incorrect parse, an inadequate lexicon, or the scoring rule.
 
+A further audit partitions the 415 comparisons in which both structured
+scores are zero. In 21 comparisons, the query has no parsed action. In 58,
+one candidate has no parsed actions. In the remaining 336, the query and both
+candidates have parsed actions, but both selected alignments have zero action
+match. Thus about 81\% of these zero-score comparisons still contain parsed
+actions on both sides. This narrows the next review to the extracted actions
+and their compatibility, rather than treating every zero as an absent parse.
+It does not establish a synonym error: negation mismatches or
+different actions can also produce zero action match.
+
 \begin{table}[htbp]\centering\small
 \caption{Diagnostic counts, reported separately by construction procedure.
 Rows overlap and must not be summed as distinct errors.}\label{tab:diagnostics}
@@ -358,38 +394,40 @@ Diagnostic & Metadata contrast & Hard negatives\\\midrule
 \bottomrule\end{tabularx}
 \end{table}
 
-\subsection{Human-reviewed extraction accuracy}
-\pending{Complete the 60-row extraction worksheet; report correctness of
-actions, objects, and tools, along with label coverage and review limitations.
-The worksheet is stratified for diagnosis, not a simple random sample for
-estimating corpus-wide precision.}
+\subsection{Human evaluation}
+\HumanReviewResults
 
-\subsection{Independent preference and final held-out results}
-\pending{Insert validated results from independent human judgments and the
-prospective evaluation. Leave unmeasured quantities blank.}
+\pending{Independent preference and prospective test results remain pending.}
 
 \section{Discussion and limitations}
-The current evidence favors lexical matching. Adding structure does not help
-simply because the representation is more explicit: the parser must identify
-the right information, and the matching rule must use it appropriately. The
-large number of ties and missing-evidence cases indicates that these conditions
-are often not met by the present system.
+I expected the action representation to help distinguish instructions that
+share an object but ask the viewer to do different things. The results instead
+show how much useful information can be lost when a match depends on a parsed
+action. Equation~\ref{eq:structured} gives zero credit when action similarity
+is zero, even if the object or surrounding text is relevant. The 336 comparisons
+with parsed actions but zero action match make that behavior a useful starting
+point for review. Inspecting those actions can help determine whether the
+problem comes from extraction, semantic coverage, or a real difference between
+the instructions.
 
-Terminology inconsistency is a concrete data issue, but it is not a complete
-explanation for the performance gap. The active lexicon is small, and some
-synonyms already occur in alternative fields. The ordinary clip-name benchmark
-also does not specifically sample regional language or unfamiliar synonyms.
-A more informative test would include independently written requests using
-those variants, together with confusing non-synonyms.
+The terminology experiment also changed how I interpret the data-cleaning
+problem. Fixing broken lists makes the records easier to use and inspect,
+but it does not necessarily improve the ranking. Likewise, the nine tested
+rewrites resolve specific naming differences without improving aggregate
+Hit@1. The lexicon is small, some alternatives already appear in the metadata,
+and the benchmark does not deliberately sample regional expressions. Requests
+written independently using those expressions would provide a more direct
+test of the value of normalization.
 
-Several limitations constrain interpretation. First, query names and candidate
-descriptions describe the same clip, so their wording and meaning are not
-independent even after direct phrase exclusions. Second, candidates with
-narrative evidence are a selected subset of the full corpus. Third, parser
-coverage is measured but parser precision is not. Fourth, constructed pairwise
-winners and scorer-selected hard negatives do not represent a population of
-human preferences. Finally, these videos and results have already been examined
-during development. A new split of the same data cannot reverse that exposure.
+The evaluation remains limited by how its requests and targets were formed.
+A clip name and its description come from the same record, so they can share
+meaning and wording even after exact phrase matches are excluded. Requiring
+a description or goal also selects a smaller, more complete portion of the
+dataset. The constructed pairwise winners add another dependency: they identify
+the clip used to form a request, rather than a preference observed from a viewer.
+Human review can assess the selected cases, but a broader performance claim
+requires independently collected evidence. Dividing the existing videos into
+new partitions would not undo their use during development.
 
 End-state matching remains a separate, unfinished task. An intended result
 such as a watertight seal is different from evidence that the seal was achieved.
@@ -397,20 +435,20 @@ Likewise, ``smooth,'' ``level,'' ``dry,'' and ``cured'' describe different
 conditions. No validated end-state representation or evaluation is reported.
 
 \section{Conclusion}
-The completed experiments establish a reproducible comparison of lexical,
-structured, and hybrid matching on human-written instructional video
-annotations. Lexical matching is currently the strongest baseline.
-Inventory cleanup improves data consistency, while the tested synonym rules
-do not improve aggregate Hit@1. The next empirical requirement is independent
-evaluation of parser correctness and clip preference, followed by a
-prospective test of any revised method.
+Through this study, I developed and evaluated three ways to match project
+steps with annotated instructional clips. Lexical matching performs best on
+the current development data. Cleaning the inventory fields removes specific
+parsing defects, while the tested terminology rules leave aggregate Hit@1
+unchanged. These findings direct the next stage toward examining which actions
+the parser extracts and why apparently relevant instructions fail to match.
+The prepared human review and a subsequent test on new data will help determine
+whether revising that representation can improve the clips a viewer receives.
 
-\pending{Revise the final conclusion after independent preference and held-out
-results are available. Do not replace the present negative result with an
-unmeasured improvement claim.}
+\pending{The final interpretation will incorporate the independent human
+evaluation and prospective results when available.}
 
 \section*{Acknowledgments}
-\pending{Author-approved acknowledgments and funding information.}
+\pending{Acknowledgments and funding information to be added.}
 
 \bibliographystyle{plainnat}
 \bibliography{references}
@@ -434,7 +472,36 @@ Each run requires a new output directory. Supplying the development root
 copies the existing labels unchanged; omitting it constructs new development
 datasets. These two modes must be distinguished when comparing runs.
 
-\section{Outstanding study materials}
-\pending{Final annotation protocol, annotator details, prospective test
-manifest, and release or access conditions for the private data.}
+\section{Human review procedure}
+A review packet has been prepared with the existing 60 extraction examples
+and 44 diagnostic preference comparisons. The latter sample contains one
+comparison per selected source step, with randomized A/B order and no model
+scores or constructed winners shown in the worksheet. It includes eight
+query-parse cases and twelve cases from each of three further diagnostic
+groups. These groups guide case selection; they do not define the true cause
+of an error. Reviewers receive blank response fields and no model scores.
+
+Preference responses allow A, B, tie, and unjudgeable, with a blank response
+treated as pending. The export tool preserves tie, unjudgeable, and pending
+counts while exporting only observed A/B choices to the binary evaluator.
+The sample is intended for diagnosis, so agreement on these cases must not
+be presented as the final independent preference result.
+
+The analysis compares each A/B decision with the corresponding scores saved
+before review. It reports method agreement and paired differences from the
+lexical baseline using 5,000 bootstrap draws over source-step clusters, with
+seed 42. Extraction correctness is reported within the four sampling groups,
+including the number of judged and unjudgeable entries. Blank fields remain
+pending. If two reviewers participate, their A/B/tie responses can be compared
+using raw agreement and Cohen's kappa; disagreements are retained for human
+adjudication. No majority or preferred label is assigned automatically.
+
+A prospective source-overlap check compares database identifiers, YouTube
+identifiers, and normalized URLs with the development export. The current
+250-video export fails this check against itself, as expected. Passing this
+check would establish only that these identifiers are disjoint; it would not
+detect every reupload or prove that queries and judgments were unseen.
+
+\pending{Annotator details, the prospective data manifest, and access conditions
+for the private data remain to be added.}
 \end{document}

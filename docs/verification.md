@@ -1,6 +1,7 @@
 # Current verification record
 
-Verified October 6, 2026 with the local Python 3.13 environment.
+Verified October 16, 2026 with the local Python 3.13 environment.
+Experiment results remain from the complete October 6 run.
 
 Current data counts and experiment results are maintained in the
 [project status, experiments, and execution guide](stesso-project-update.md).
@@ -17,7 +18,7 @@ Run:
 Latest result:
 
 ```text
-123 tests passed
+149 tests passed
 All Ruff checks passed
 Python source and tests compiled
 Bash syntax check passed
@@ -26,6 +27,14 @@ CLI help rendered successfully
 
 The suite covers:
 
+- returned-sheet validation, saved-score agreement and paired differences,
+  explicit pending/unjudgeable states, and reviewer agreement;
+- refusal to insert partial, modified, or different-suite review results into
+  the manuscript, plus a reviewer ZIP that excludes the private key;
+- human-review export validation, explicit abstention accounting, and protection
+  against inferred labels or edited clip identities;
+- prospective overlap detection, including reidentified YouTube videos and
+  duplicate candidate videos;
 - complete experiment-suite CLI availability, output preservation and failure status;
 - cross-run cohort/index checks, duplicate query rejection, consistency between
   CSV ranks and aggregate metrics, and fractional-tie paired comparisons;
@@ -46,6 +55,36 @@ The suite covers:
 - end-to-end command smoke tests.
 
 ## Real sample checks
+
+The October 15 diagnostic packet contains 60 extraction rows and 44 preference
+rows from distinct source steps. All response fields are blank, protected CSV
+fields match the private key, and no scorer outputs or constructed winners
+appear in the preference sheet. Its zero-score partition accounts for all 415
+comparisons: 21 query parse failures, 58 missing candidate parses, and 336 with
+parsed actions but zero selected action matches.
+
+The prospective overlap guard was run with the existing export on both sides.
+It detected all 250 overlapping videos and returned the expected failure status.
+This verifies rejection behavior; it is not a prospective evaluation.
+
+The ten-page manuscript builds with LaTeX/BibTeX from hash-verified result
+tables. The build also produces a source bundle that excludes private datasets
+and review worksheets.
+
+The current packet is `project1_outputs/review-kit-ready-2026-10-15/` and uses
+schema version 2. Each saved model score was checked against the original
+comparison after randomized A/B ordering. The blank-sheet analysis correctly
+reports 224 pending answers and no human accuracy. A temporary integration
+check supplied explicitly synthetic A/B, tie, unjudgeable, and extraction
+answers, then ran the analysis, binary export, suite/hash validation, and PDF
+and ZIP build. Building again without a review argument restored the placeholder.
+Synthetic answers were removed with their temporary directory and never entered
+the actual worksheets or manuscript.
+
+The October 16 readiness run is saved in
+`project1_outputs/review-readiness-2026-10-16/`. All 224 responses remain pending.
+The final documentation pass checked local links in 14 files, and the source
+ZIP compiled independently without the private experiment files.
 
 The October 6 end-to-end run completed in
 `project1_outputs/experiment-suite-2026-10-06/`. It built a fresh index, ran

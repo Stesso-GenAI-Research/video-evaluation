@@ -17,6 +17,16 @@ The repository supports three distinct evaluations:
 
 Results from one evaluation must not be presented as results from another.
 
+The diagnostic human-review packet is a selected development sample within the
+pairwise workflow. Its new `analyze-review` command compares observed decisions
+with scores saved before review, rather than recomputing them after labels
+arrive. It reports exact score ties as half credit, excludes human ties and
+abstentions from binary agreement with explicit counts, and computes paired
+differences from the lexical method using source-step clusters. These intervals
+describe the selected sample; they do not correct its selection bias.
+Extraction judgments are reported by diagnostic group because groups may
+overlap. See the [review and paper handoff](study-completion.md).
+
 ## Field-held-out retrieval benchmark
 
 The supplied indexed-video annotations are authentic human-generated data,

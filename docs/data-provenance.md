@@ -1,6 +1,6 @@
 # Data provenance
 
-Updated September 22, 2026, following the data owner's confirmation that the
+Updated October 16, 2026. On September 22, the data owner confirmed that the
 supplied source data is authentic human-generated data. Descriptions of these
 source annotations as machine-labeled or synthetic are incorrect.
 
@@ -42,3 +42,11 @@ No separate authentic W25 A/B preference export is currently present locally.
 That export is needed for the human-preference agreement experiment, not for
 the existing retrieval benchmark. Correcting source provenance does not change
 the recorded scores or convert generated winners into human preference labels.
+
+The current review packet at `project1_outputs/review-kit-ready-2026-10-15/`
+contains blank response fields. Its private key preserves recorded model scores
+and row identities; those scores remain model outputs. Only entered A/B
+responses are exported with `human_diagnostic_pilot` provenance. Ties,
+unjudgeable cases, and pending responses remain explicit in the analysis.
+The packet's selection from examined development data remains unchanged by
+human review. Its suite, key, worksheet, and analysis hashes document that chain.
