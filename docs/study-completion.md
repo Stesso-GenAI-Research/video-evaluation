@@ -1,6 +1,6 @@
 # Completing the study
 
-Updated October 15, 2026. The remaining local workflow is ready: returned review
+Updated October 16, 2026. The remaining local workflow is ready: returned review
 sheets can be validated, analyzed against the recorded model scores, and included
 in the manuscript without writing another analysis script. The current packet
 supports diagnosis of existing development cases. Completing it will not supply
@@ -158,7 +158,8 @@ that synonyms caused the problem. No scoring parameters have changed.
 
 The blank version 2 packet was analyzed as a readiness check. It reports 224
 pending responses: 180 extraction judgments and 44 preferences. It reports no
-human accuracy. The overlap guard also correctly rejects all 250 development
+human accuracy; the report is in `project1_outputs/review-readiness-2026-10-16/`.
+The overlap guard also correctly rejects all 250 development
 videos when the existing export is compared with itself.
 
 The author and reviewers still need to supply actual judgments, the original

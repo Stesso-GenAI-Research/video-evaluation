@@ -1,6 +1,6 @@
 # Project status, experiments, and execution guide
 
-Last verified: October 15, 2026. Experimental results: October 6, 2026.
+Last verified: October 16, 2026. Experimental results: October 6, 2026.
 
 Source provenance corrected: September 22, 2026, following data-owner
 confirmation. The supplied indexed-video annotations are authentic
@@ -436,7 +436,7 @@ preference data.
 
 ## 9. Next work
 
-October 15 completion priorities:
+October 16 completion priorities:
 
 1. Complete the 60-row parser review in
    `project1_outputs/review-kit-ready-2026-10-15/extraction_review.csv`; judge actions, objects and tools

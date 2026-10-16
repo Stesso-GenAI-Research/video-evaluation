@@ -2,7 +2,7 @@
 
 `report.pdf` is the compiled single-column manuscript. `main.tex` is the editable
 source; `references.bib` contains the verified references. The latest draft is
-dated October 15, 2026 and reports the October 6 experiments. Author and
+dated October 16, 2026 and reports the October 6 experiments. Author and
 affiliation remain placeholders.
 
 Build from the repository root with TeX Live/MacTeX and `latexmk` installed:

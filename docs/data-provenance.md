@@ -1,6 +1,6 @@
 # Data provenance
 
-Updated October 15, 2026. On September 22, the data owner confirmed that the
+Updated October 16, 2026. On September 22, the data owner confirmed that the
 supplied source data is authentic human-generated data. Descriptions of these
 source annotations as machine-labeled or synthetic are incorrect.
 

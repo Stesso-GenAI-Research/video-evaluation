@@ -1,6 +1,6 @@
 # Current verification record
 
-Verified October 15, 2026 with the local Python 3.13 environment.
+Verified October 16, 2026 with the local Python 3.13 environment.
 Experiment results remain from the complete October 6 run.
 
 Current data counts and experiment results are maintained in the
@@ -80,6 +80,11 @@ answers, then ran the analysis, binary export, suite/hash validation, and PDF
 and ZIP build. Building again without a review argument restored the placeholder.
 Synthetic answers were removed with their temporary directory and never entered
 the actual worksheets or manuscript.
+
+The October 16 readiness run is saved in
+`project1_outputs/review-readiness-2026-10-16/`. All 224 responses remain pending.
+The final documentation pass checked local links in 14 files, and the source
+ZIP compiled independently without the private experiment files.
 
 The October 6 end-to-end run completed in
 `project1_outputs/experiment-suite-2026-10-06/`. It built a fresh index, ran
